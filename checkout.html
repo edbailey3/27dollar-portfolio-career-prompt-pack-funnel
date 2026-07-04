@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Checkout — The Portfolio Career Prompt Pack</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="checkout-shell">
+
+  <!-- LEFT: ORDER SUMMARY -->
+  <div class="checkout-summary">
+    <div class="wrap">
+      <div class="brand" style="color:var(--paper); margin-bottom:36px;">PORTFOLIO<span style="color:var(--highlight);">//</span>CAREER PROMPT PACK</div>
+
+      <div class="product-line">
+        <div class="product-thumb">PP</div>
+        <div>
+          <h3>The Portfolio Career Prompt Pack</h3>
+          <p>40 prompts · PDF + Google Doc</p>
+        </div>
+        <div class="price">$27</div>
+      </div>
+
+      <div class="checkout-includes">
+        <div class="eyebrow">What you get</div>
+        <ul>
+          <li>40 copy-paste prompts (Audit, Match, Sequence, Price)</li>
+          <li>PDF + editable Google Doc version</li>
+          <li>Bonus: 10-Minute Income Stream Audit worksheet</li>
+          <li>Bonus: Portfolio Career Vocabulary Cheat Sheet</li>
+          <li>Instant download, works with ChatGPT or Claude</li>
+        </ul>
+      </div>
+
+      <div id="bump-summary"></div>
+
+      <div class="total-row">
+        <span class="label">Total due today</span>
+        <span class="amount" id="total-amount">$27<span> USD</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: FORM -->
+  <div class="checkout-form">
+    <div class="wrap">
+      <div class="eyebrow" style="margin-bottom:14px;">Almost there</div>
+      <h2 style="font-size:26px; margin-bottom:6px;">Complete your order</h2>
+      <p style="font-size:14px; margin-bottom:10px;">Enter your details below to get instant access.</p>
+
+      <label class="form-label">Email address</label>
+      <input class="form-input" type="email" placeholder="you@email.com" required>
+
+      <div class="form-row">
+        <div>
+          <label class="form-label">Card number</label>
+          <input class="form-input" type="text" placeholder="1234 1234 1234 1234">
+        </div>
+        <div>
+          <label class="form-label">Expiry</label>
+          <input class="form-input" type="text" placeholder="MM / YY">
+        </div>
+      </div>
+
+      <label class="form-label">Name on card</label>
+      <input class="form-input" type="text" placeholder="Full name">
+
+      <!-- ORDER BUMP 1 -->
+      <div class="bump" id="bump1" onclick="toggleBump('bump1','bump1-check')">
+        <input type="checkbox" id="bump1-check" onclick="event.stopPropagation(); toggleBump('bump1','bump1-check')">
+        <div class="bump-body">
+          <span class="bump-tag">Add to your order</span>
+          <div class="bump-title">
+            <span>The Overqualified &amp; Underutilized Career Reset Checklist</span>
+            <span class="bump-price">+$17</span>
+          </div>
+          <p>Diagnose exactly why you're stuck, in one sitting — before you build anything new.</p>
+        </div>
+      </div>
+
+      <!-- ORDER BUMP 2 -->
+      <div class="bump" id="bump2" onclick="toggleBump('bump2','bump2-check')">
+        <input type="checkbox" id="bump2-check" onclick="event.stopPropagation(); toggleBump('bump2','bump2-check')">
+        <div class="bump-body">
+          <span class="bump-tag">Add to your order</span>
+          <div class="bump-title">
+            <span>Portfolio Career Pricing Calculator</span>
+            <span class="bump-price">+$12</span>
+          </div>
+          <p>Know what every hour of your scattered brilliance is worth — before you send another proposal.</p>
+        </div>
+      </div>
+
+      <div class="checkout-btn-wrap">
+        <!-- Replace href="upsell.html" with your real checkout/payment link -->
+        <a href="upsell.html" class="btn btn--primary" id="checkout-btn">Connect Checkout Link Here</a>
+      </div>
+
+      <div class="trust-row">
+        <span>🔒 Secure checkout</span>
+        <span>⚡ Instant delivery</span>
+        <span>↩ 14-day guarantee</span>
+      </div>
+
+      <div class="guarantee">
+        <span class="badge">✓</span>
+        <p><strong>14-day, no-questions-asked guarantee.</strong> Run the prompts. If it's not useful, email us and get your money back. No forms, no guilt trip.</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>

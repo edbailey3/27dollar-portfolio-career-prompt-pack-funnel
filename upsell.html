@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wait — one more thing (Special One-Time Offer)</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="upsell-shell">
+  <div class="wrap">
+
+    <!-- UPSELL OFFER -->
+    <div class="upsell-card" id="offer-panel">
+      <span class="upsell-flag">Wait, before you go</span>
+      <h1>Your income map is done. Now let's run it without losing your mind.</h1>
+      <p class="lede">You just built a plan for 3 income streams. The next problem is real: managing all of them without dropping one. That's what this is for.</p>
+
+      <div class="eyebrow" style="margin-bottom:10px;">One-time offer · Spider-Web Brain Notion OS</div>
+      <h3 style="font-size:22px; margin-bottom:10px;">Run every income stream from one dashboard — built for non-linear brains.</h3>
+      <p>Every ADHD template out there is built for one job and one to-do list. This one's built for people running multiple projects, multiple clients, and multiple income streams at once — because that's what you're actually doing now.</p>
+
+      <div style="margin-top:22px;">
+        <div class="include-item" style="margin-bottom:12px;">
+          <div class="include-num" style="border-radius:8px;">✓</div>
+          <div><h3 style="font-size:16px;">One dashboard for every income stream</h3><p style="font-size:14px;">Clients, projects, and ideas — tracked separately, viewed together.</p></div>
+        </div>
+        <div class="include-item" style="margin-bottom:12px;">
+          <div class="include-num" style="border-radius:8px;">✓</div>
+          <div><h3 style="font-size:16px;">Built-in weekly focus rotation</h3><p style="font-size:14px;">Decide which project gets your attention this week — without dropping the others.</p></div>
+        </div>
+        <div class="include-item">
+          <div class="include-num" style="border-radius:8px;">✓</div>
+          <div><h3 style="font-size:16px;">Plug-and-duplicate setup</h3><p style="font-size:14px;">Duplicate into your Notion workspace and it's ready in under 10 minutes.</p></div>
+        </div>
+      </div>
+
+      <div class="upsell-price-row">
+        <span class="upsell-price">$47</span>
+        <span class="upsell-price-old">$97</span>
+        <span style="font-family:var(--mono); font-size:12px; color:var(--coral-dark);">today only</span>
+      </div>
+
+      <div class="upsell-actions">
+        <button class="btn btn--primary" onclick="acceptUpsell()">Yes — Add It To My Order for $47</button>
+        <button class="no-thanks" onclick="declineUpsell()">No thanks, take me to my download</button>
+      </div>
+
+      <div class="faq-item" style="margin-top:30px;">
+        <div class="faq-q">Do I need Notion for this?<span class="plus">+</span></div>
+        <div class="faq-a"><p>Yes, a free Notion account. It duplicates directly into your workspace in a few clicks.</p></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Can I get this later instead?<span class="plus">+</span></div>
+        <div class="faq-a"><p>This price is only available on this page, right now. It goes back to $97 after you leave.</p></div>
+      </div>
+    </div>
+
+    <!-- CONFIRMATION PANEL (shown after accept/decline) -->
+    <div class="confirm-panel" id="confirm-panel">
+      <h1 id="confirm-title">You're in.</h1>
+      <p class="lede" id="confirm-text" style="margin:0 auto;">Check your email — your download links are on their way.</p>
+    </div>
+
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
