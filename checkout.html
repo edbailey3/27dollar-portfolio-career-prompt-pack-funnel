@@ -54,20 +54,7 @@
       <label class="form-label">Email address</label>
       <input class="form-input" type="email" placeholder="you@email.com" required>
 
-      <div class="form-row">
-        <div>
-          <label class="form-label">Card number</label>
-          <input class="form-input" type="text" placeholder="1234 1234 1234 1234">
-        </div>
-        <div>
-          <label class="form-label">Expiry</label>
-          <input class="form-input" type="text" placeholder="MM / YY">
-        </div>
-      </div>
-
-      <label class="form-label">Name on card</label>
-      <input class="form-input" type="text" placeholder="Full name">
-
+      
       <!-- ORDER BUMP 1 -->
       <div class="bump" id="bump1" onclick="toggleBump('bump1','bump1-check')">
         <input type="checkbox" id="bump1-check" onclick="event.stopPropagation(); toggleBump('bump1','bump1-check')">
@@ -94,9 +81,8 @@
         </div>
       </div>
 
-      <div class="checkout-btn-wrap">
-        <!-- Replace href="upsell.html" with your real checkout/payment link -->
-        <a href="upsell.html" class="btn btn--primary" id="checkout-btn">Connect Checkout Link Here</a>
+      <div class="checkout-btn-wrap" style="margin-top: 26px;">
+        <div id="paypal-button-container"></div>
       </div>
 
       <div class="trust-row">
@@ -114,6 +100,7 @@
 
 </div>
 
+<script src="https://www.paypal.com/sdk/js?client-id=AZ1_0aTSSXkrHYWZbBAc9ZhXBvNL_EC6UPGqBAiCZYltK_-fS8EoZsKS6_XvNbtWDkAv8-yzQOvAmGkw&currency=USD&components=buttons"></script>
 <script src="script.js"></script>
 </body>
 </html>

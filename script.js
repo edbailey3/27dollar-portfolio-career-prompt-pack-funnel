@@ -109,3 +109,48 @@ function showConfirm(title, text){
   confirm.classList.add('show');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+// ---------- PAYPAL SECURE DISPATCH INFRASTRUCTURE ----------
+if(document.getElementById('paypal-button-container')){
+  paypal.Buttons({
+    style: {
+      layout: 'vertical',
+      color:  'gold',
+      shape:  'rect',
+      label:  'paypal'
+    },
+    createOrder: function() {
+      // 1. Snag checkbox data points right at the split-second of the click
+      const b1 = document.getElementById('bump1-check');
+      const b2 = document.getElementById('bump2-check');
+
+      // 2. Pass variables to serverless function to prevent front-end price manipulation
+      return fetch('/api/create-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bump1: b1 ? b1.checked : false,
+          bump2: b2 ? b2.checked : false
+        })
+      })
+      .then(res => res.json())
+      .then(order => order.id);
+    },
+    onApprove: function(data) {
+      // 3. Pass verification token straight to your capture route
+      return fetch('/api/capture-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderID: data.orderID })
+      })
+      .then(res => res.json())
+      .then(function() {
+        // Cash cleared securely. Route them immediately to the upsell track.
+        window.location.href = "upsell.html";
+      });
+    },
+    onError: function(err) {
+      console.error("Secure Processing Error: ", err);
+      alert("Transaction verification failed. Please try again or use an alternative card.");
+    }
+  }).render('#paypal-button-container');
+}
