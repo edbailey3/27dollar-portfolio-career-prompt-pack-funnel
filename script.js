@@ -29,6 +29,8 @@ var PRICES = {
   bump2: 12
 };
 
+var currentTotalAmount = PRICES.base;
+
 function toggleBump(boxId, checkboxId){
   var box = document.getElementById(boxId);
   var checkbox = document.getElementById(checkboxId);
@@ -65,6 +67,7 @@ function updateTotal(){
 
   if(summaryEl) summaryEl.innerHTML = lines;
   totalEl.innerHTML = '$' + total + '<span> USD</span>';
+  currentTotalAmount = total;
 }
 
 function bumpLineHTML(name, price){
@@ -83,6 +86,14 @@ if(document.getElementById('total-amount')){
 
 // ---------- UPSELL PAGE: accept / decline ----------
 function acceptUpsell(){
+  // ── MASTER UPSALE DATA SIGNAL ──
+  window.dataLayer = window.dataLayer || [];
+  window.dataLayer.push({
+    'event': 'upsell_completed',
+    'value': 47.00,
+    'currency': 'USD'
+  });
+
   showConfirm(
     "You're all set.",
     "The Portfolio Career Prompt Pack + Spider-Web Brain Notion OS are both headed to your inbox. Check your email for download links."
@@ -136,15 +147,25 @@ if(document.getElementById('paypal-button-container')){
       .then(order => order.id);
     },
     onApprove: function(data) {
-      // 3. Pass verification token straight to your capture route
+      const customerEmail = document.getElementById('buyer-email').value;
+
       return fetch('/api/capture-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderID: data.orderID })
+        body: JSON.stringify({ orderID: data.orderID, email: customerEmail })
       })
       .then(res => res.json())
       .then(function() {
-        // Cash cleared securely. Route them immediately to the upsell track.
+        // ── MASTER TRACKING DATA SIGNAL ──
+        window.dataLayer = window.dataLayer || [];
+        window.dataLayer.push({
+          'event': 'purchase_funnel_completed',
+          'transactionId': data.orderID,
+          'value': currentTotalAmount, // Automatically captures $27, $39, $44, or $56
+          'currency': 'USD'
+        });
+
+        // Pass them cleanly into the upsell track
         window.location.href = "upsell.html";
       });
     },
