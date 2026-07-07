@@ -8,9 +8,12 @@ function attachFAQListeners(){
   var items = document.querySelectorAll('.faq-item');
   items.forEach(function(item){
     var q = item.querySelector('.faq-q');
-    if(!q) return;
+    var a = item.querySelector('.faq-a');
+    if(!q || !a) return;
     q.addEventListener('click', function(){
-      item.classList.toggle('open');
+      var isOpen = item.classList.toggle('open');
+      q.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      a.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
     });
   });
 }

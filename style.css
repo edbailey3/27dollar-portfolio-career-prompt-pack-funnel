@@ -881,3 +881,31 @@ section{ padding: 56px 0; }
     box-shadow: 0 -4px 15px rgba(0,0,0,0.08);
   }
 }
+
+/* =========================================================
+   ADA / WEB ACCESSIBILITY COMPLIANCE (WCAG 2.1 AA)
+   ========================================================= */
+
+/* High-contrast focus outlines for keyboard tab navigation */
+:focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 4px;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--coral);
+  outline-offset: 1px;
+}
+
+/* Reset styling for button-based semantic FAQ accordion headers */
+button.faq-q {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+  font-family: inherit;
+}

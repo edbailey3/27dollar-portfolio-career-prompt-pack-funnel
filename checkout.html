@@ -54,13 +54,13 @@
       <h2 style="font-size:26px; margin-bottom:6px;">Complete your order</h2>
       <p style="font-size:14px; margin-bottom:10px;">Enter your details below to get instant access.</p>
 
-      <label class="form-label">Email address</label>
+      <label class="form-label" for="buyer-email">Email address</label>
       <input class="form-input" id="buyer-email" type="email" placeholder="you@email.com" required>
 
       
       <!-- ORDER BUMP 1 -->
       <div class="bump" id="bump1" onclick="toggleBump('bump1','bump1-check')">
-        <input type="checkbox" id="bump1-check" onclick="event.stopPropagation(); toggleBump('bump1','bump1-check')">
+        <input type="checkbox" id="bump1-check" aria-label="Add to your order: The Overqualified &amp; Underutilized Career Reset Checklist for $17" onclick="event.stopPropagation(); toggleBump('bump1','bump1-check')">
         <div class="bump-body">
           <span class="bump-tag">Add to your order</span>
           <div class="bump-title">
@@ -73,7 +73,7 @@
 
       <!-- ORDER BUMP 2 -->
       <div class="bump" id="bump2" onclick="toggleBump('bump2','bump2-check')">
-        <input type="checkbox" id="bump2-check" onclick="event.stopPropagation(); toggleBump('bump2','bump2-check')">
+        <input type="checkbox" id="bump2-check" aria-label="Add to your order: Portfolio Career Pricing Calculator for $12" onclick="event.stopPropagation(); toggleBump('bump2','bump2-check')">
         <div class="bump-body">
           <span class="bump-tag">Add to your order</span>
           <div class="bump-title">
