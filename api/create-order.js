@@ -2,7 +2,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { bump1, bump2 } = req.body;
+    const { bump1, bump2 } = req.body || {};
 
     // Hardcoded server-side source of truth pricing metrics
     let total = 27; 
@@ -40,6 +40,7 @@ export default async function handler(req, res) {
     const orderData = await orderResponse.json();
     return res.status(200).json({ id: orderData.id });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    console.error("PayPal Create Order Error: ", err);
+    return res.status(500).json({ error: "Failed to create secure transaction." });
   }
 }

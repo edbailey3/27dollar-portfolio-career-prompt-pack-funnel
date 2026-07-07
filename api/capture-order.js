@@ -2,7 +2,16 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { orderID, email } = req.body;
+    const { orderID, email } = req.body || {};
+
+    if (!orderID || !email) {
+      return res.status(400).json({ error: 'Order verification fields are missing.' });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Invalid email address format.' });
+    }
 
     // 1. Authenticate and Generate PayPal OAuth Token
     const auth = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_SECRET_KEY}`).toString('base64');
@@ -68,6 +77,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ success: true });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    console.error("PayPal Capture Order Error: ", err);
+    return res.status(500).json({ error: "Failed to verify transaction." });
   }
 }
