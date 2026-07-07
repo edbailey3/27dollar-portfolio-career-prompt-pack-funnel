@@ -1,0 +1,36 @@
+# robots.txt for Portfolio Career Prompt Pack
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /api/*
+
+# Explicitly allow major AI search engine crawlers and LLM trainers
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: Anthropic-ai
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+# Sitemap link
+Sitemap: https://portfoliocareerschool.com/sitemap.xml
