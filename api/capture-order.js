@@ -1,3 +1,5 @@
+import crypto from 'crypto';
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -73,6 +75,59 @@ export default async function handler(req, res) {
           email: email
         })
       });
+    }
+
+    // 5. Secure Server-to-Server TikTok Events API Tracking
+    try {
+      const tiktokAccessToken = process.env.TIKTOK_ACCESS_TOKEN;
+      if (tiktokAccessToken) {
+        const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+        const userAgent = req.headers['user-agent'] || '';
+
+        const payerNameObj = captureData.payer?.name || captureData.payment_source?.paypal?.name || {};
+        const firstName = payerNameObj.given_name || '';
+        const lastName = payerNameObj.surname || '';
+        const fullName = `${firstName} ${lastName}`.trim();
+
+        const hashedEmail = crypto.createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+        const hashedName = fullName ? crypto.createHash('sha256').update(fullName.trim().toLowerCase()).digest('hex') : '';
+        const event_id = captureData.purchase_units?.[0]?.payments?.captures?.[0]?.id || orderID;
+
+        const tiktokPayload = {
+          event_source: 'web',
+          event_source_id: 'D9BGIB3C77U133LMOJDG',
+          data: [
+            {
+              event: 'Purchase',
+              event_time: Math.floor(Date.now() / 1000),
+              event_id: event_id,
+              user: {
+                email: hashedEmail,
+                name: hashedName,
+                ip: clientIp,
+                user_agent: userAgent
+              },
+              properties: {
+                value: totalPaid,
+                currency: 'USD'
+              }
+            }
+          ]
+        };
+
+        await fetch('https://business-api.tiktok.com/open_api/v1.3/event/track/', {
+          method: 'POST',
+          headers: {
+            'Access-Token': tiktokAccessToken,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(tiktokPayload)
+        });
+      } else {
+        console.warn('TikTok Access Token is missing in environment variables.');
+      }
+    } catch (tiktokError) {
+      console.error('TikTok Events API tracking failed:', tiktokError);
     }
 
     return res.status(200).json({ success: true });
