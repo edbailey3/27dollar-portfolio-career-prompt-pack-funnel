@@ -86,6 +86,24 @@ if(document.getElementById('total-amount')){
   updateTotal();
 }
 
+// ---------- CHECKOUT PAGE: background draft checkout sync ----------
+var buyerEmailInput = document.getElementById('buyer-email');
+if(buyerEmailInput){
+  buyerEmailInput.addEventListener('blur', function(){
+    var email = buyerEmailInput.value.trim();
+    var emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if(emailRegex.test(email)){
+      fetch('/api/draft-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email })
+      }).catch(function(err){
+        console.error("Draft checkout background sync failed:", err);
+      });
+    }
+  });
+}
+
 
 // ---------- UPSELL PAGE: accept / decline ----------
 function acceptUpsell(){
