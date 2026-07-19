@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/metrics/gtm.js",
+      "destination": "https://www.googletagmanager.com/gtm.js"
+    },
+    {
+      "source": "/metrics/collect",
+      "destination": "https://www.google-analytics.com/g/collect"
+    }
+  ]
+}
