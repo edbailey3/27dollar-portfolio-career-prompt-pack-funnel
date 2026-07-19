@@ -5,8 +5,18 @@
   window.dataLayer = window.dataLayer || [];
   function gtag(){dataLayer.push(arguments);}
   
-  // Initialize strict default parameters immediately to secure our legal perimeter
+  // 1. Global Baseline: Granted by default for US/Unspecified optimization lanes
   gtag('consent', 'default', {
+    'ad_storage': 'granted',
+    'analytics_storage': 'granted',
+    'ad_user_data': 'granted',
+    'ad_personalization': 'granted',
+    'wait_for_update': 500
+  });
+  
+  // 2. Regional Overrides: Strictly denied by default for EEA and UK traffic lines
+  gtag('consent', 'default', {
+    'region': ['EEA', 'GB'],
     'ad_storage': 'denied',
     'analytics_storage': 'denied',
     'ad_user_data': 'denied',
