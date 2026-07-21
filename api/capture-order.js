@@ -39,7 +39,7 @@ export default async function handler(req, res) {
 
     // If payment fails or is rejected, stop the script immediately
     if (captureData.status !== 'COMPLETED') {
-      return res.status(400).json({ error: 'Payment authorization failed' });
+      return res.status(400).json(captureData);
     }
 
     // 3. THE KIT FULFILLMENT LOGIC
@@ -130,7 +130,7 @@ export default async function handler(req, res) {
       console.error('TikTok Events API tracking failed:', tiktokError);
     }
 
-    return res.status(200).json({ success: true });
+    return res.status(200).json({ success: true, status: 'COMPLETED' });
   } catch (err) {
     console.error("PayPal Capture Order Error: ", err);
     return res.status(500).json({ error: "Failed to verify transaction." });

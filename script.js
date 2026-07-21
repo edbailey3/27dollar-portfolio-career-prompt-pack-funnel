@@ -167,8 +167,8 @@ if(document.getElementById('paypal-button-container')){
       .then(res => res.json())
       .then(order => order.id);
     },
-    onApprove: function(data) {
-      const customerEmail = document.getElementById('buyer-email').value;
+    onApprove: function(data, actions) {
+      const customerEmail = document.getElementById('buyer-email')?.value || '';
 
       return fetch('/api/capture-order', {
         method: 'POST',
@@ -176,18 +176,36 @@ if(document.getElementById('paypal-button-container')){
         body: JSON.stringify({ orderID: data.orderID, email: customerEmail })
       })
       .then(res => res.json())
-      .then(function() {
-        // ── MASTER TRACKING DATA SIGNAL ──
-        window.dataLayer = window.dataLayer || [];
-        window.dataLayer.push({
-          'event': 'purchase_funnel_completed',
-          'transactionId': data.orderID,
-          'value': currentTotalAmount, // Automatically captures $27, $39, $44, or $56
-          'currency': 'USD'
-        });
+      .then(details => {
+        // 1. Handle Card / Bank Declines (Re-open modal for user to pick another card)
+        const errorDetail = details?.details?.[0];
+        if (errorDetail?.issue === 'INSTRUMENT_DECLINED') {
+          return actions.restart();
+        }
 
-        // Pass them cleanly into the upsell track
-        window.location.href = "upsell.html";
+        // 2. Handle Other Unprocessable Errors
+        if (details.error || errorDetail) {
+          alert('Payment could not be processed. Please try a different payment method.');
+          return;
+        }
+
+        // 3. SUCCESS: Cash cleared into PayPal
+        if (details.status === 'COMPLETED') {
+          if (typeof fbq === 'function') {
+            fbq('track', 'Purchase', { value: currentTotalAmount || 27.00, currency: 'USD' });
+          }
+
+          // GA4 Purchase event via GTM DataLayer
+          window.dataLayer = window.dataLayer || [];
+          window.dataLayer.push({
+            'event': 'purchase_funnel_completed',
+            'transactionId': data.orderID,
+            'value': currentTotalAmount || 27.00,
+            'currency': 'USD'
+          });
+
+          window.location.href = '/upsell.html';
+        }
       });
     },
     onError: function(err) {
