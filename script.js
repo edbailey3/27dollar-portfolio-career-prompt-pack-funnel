@@ -87,7 +87,7 @@ if(document.getElementById('total-amount')){
 }
 
 // ---------- CHECKOUT PAGE: background draft checkout sync ----------
-var buyerEmailInput = document.getElementById('buyer-email');
+var buyerEmailInput = document.getElementById('customer-email');
 if(buyerEmailInput){
   buyerEmailInput.addEventListener('blur', function(){
     var email = buyerEmailInput.value.trim();
@@ -150,25 +150,43 @@ if(document.getElementById('paypal-button-container')){
       shape:  'rect',
       label:  'paypal'
     },
-    createOrder: function() {
-      // 1. Snag checkbox data points right at the split-second of the click
-      const b1 = document.getElementById('bump1-check');
-      const b2 = document.getElementById('bump2-check');
 
-      // 2. Pass variables to serverless function to prevent front-end price manipulation
-      return fetch('/api/create-order', {
+    onClick: function(data, actions) {
+      const emailInput = document.getElementById('customer-email')?.value?.trim();
+      const errorEl = document.getElementById('email-error');
+
+      if (!emailInput || !emailInput.includes('@')) {
+        if (errorEl) errorEl.style.display = 'block';
+        document.getElementById('customer-email')?.focus();
+        return actions.reject();
+      } else {
+        if (errorEl) errorEl.style.display = 'none';
+        return actions.resolve();
+      }
+    },
+
+    createOrder: function(data, actions) {
+      const emailInput = document.getElementById('customer-email')?.value?.trim();
+
+      // Sync lead to Kit first, then create PayPal Order
+      return fetch('/api/checkout-initiated', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bump1: b1 ? b1.checked : false,
-          bump2: b2 ? b2.checked : false
-        })
+        body: JSON.stringify({ email: emailInput, product: 'Prompt Pack' })
       })
-      .then(res => res.json())
-      .then(order => order.id);
+      .then(() => {
+        return fetch('/api/create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount: '27.00' })
+        })
+        .then(res => res.json())
+        .then(order => order.id);
+      });
     },
+
     onApprove: function(data, actions) {
-      const customerEmail = document.getElementById('buyer-email')?.value || '';
+      const customerEmail = document.getElementById('customer-email')?.value || '';
 
       return fetch('/api/capture-order', {
         method: 'POST',
@@ -208,6 +226,7 @@ if(document.getElementById('paypal-button-container')){
         }
       });
     },
+
     onError: function(err) {
       console.error("Secure Processing Error: ", err);
       alert("Transaction verification failed. Please try again or use an alternative card.");
