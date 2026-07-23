@@ -107,11 +107,24 @@ if(buyerEmailInput){
 
 // ---------- UPSELL PAGE: accept / decline ----------
 function acceptUpsell(){
-  // ── MASTER UPSALE DATA SIGNAL ──
+  const upsellOrderId = 'upsell_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11);
+  const upsellValue = 47.00;
+
+  if (typeof fbq === 'function') {
+    fbq('track', 'Purchase', {
+      value: upsellValue,
+      currency: 'USD',
+      content_name: 'Spider-Web Brain Notion OS',
+      content_type: 'product'
+    }, { eventID: upsellOrderId });
+  }
+
+  // ── MASTER UPSELL DATA SIGNAL ──
   window.dataLayer = window.dataLayer || [];
   window.dataLayer.push({
     'event': 'upsell_completed',
-    'value': 47.00,
+    'transactionId': upsellOrderId,
+    'value': upsellValue,
     'currency': 'USD'
   });
 
@@ -179,11 +192,12 @@ if(document.getElementById('paypal-button-container')){
     createOrder: function(data, actions) {
       const b1 = document.getElementById('bump1-check')?.checked || false;
       const b2 = document.getElementById('bump2-check')?.checked || false;
+      const selectedAmount = (27 + (b1 ? 17 : 0) + (b2 ? 12 : 0)).toFixed(2);
 
       return fetch('/api/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bump1: b1, bump2: b2 })
+        body: JSON.stringify({ bump1: b1, bump2: b2, amount: selectedAmount })
       })
       .then(res => res.json())
       .then(order => order.id);
@@ -213,12 +227,14 @@ if(document.getElementById('paypal-button-container')){
 
         // 3. SUCCESS: Cash cleared into PayPal (Deterministic Purchase Trigger)
         if (details.status === 'COMPLETED') {
+          const capturedValue = details.value || currentTotalAmount || 27.00;
+
           // Client-Side Meta Pixel Deduplication using eventID (PayPal Order ID)
           if (typeof fbq === 'function') {
             fbq('track', 'Purchase', {
-              value: currentTotalAmount || 27.00,
+              value: capturedValue,
               currency: 'USD',
-              content_name: 'Portfolio Career School - Prompt Pack',
+              content_name: 'Portfolio Career School Offer',
               content_type: 'product'
             }, { eventID: data.orderID });
           }
@@ -228,7 +244,7 @@ if(document.getElementById('paypal-button-container')){
           window.dataLayer.push({
             'event': 'purchase_funnel_completed',
             'transactionId': data.orderID,
-            'value': currentTotalAmount || 27.00,
+            'value': capturedValue,
             'currency': 'USD'
           });
 

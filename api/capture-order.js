@@ -5,9 +5,10 @@ import crypto from 'crypto';
  *
  * @param {string} email - Customer email address
  * @param {string} orderId - Order identifier (e.g. PayPal Order ID for deduplication)
+ * @param {number} capturedValue - Exact numerical value of settled transaction
  * @param {import('http').IncomingMessage} req - The incoming HTTP request object
  */
-export async function sendTikTokEvent(email, orderId, req) {
+export async function sendTikTokEvent(email, orderId, capturedValue, req) {
   try {
     const accessToken = process.env.TIKTOK_ACCESS_TOKEN;
     const pixelId = process.env.TIKTOK_PIXEL_ID;
@@ -40,14 +41,14 @@ export async function sendTikTokEvent(email, orderId, req) {
       },
       properties: {
         currency: "USD",
-        value: 27.00,
+        value: capturedValue || 27.00,
         contents: [
           {
-            price: 27.00,
+            price: capturedValue || 27.00,
             quantity: 1,
             content_id: "pcs-prompt-pack",
             content_type: "product",
-            content_name: "Portfolio Career School - Prompt Pack"
+            content_name: "Portfolio Career School Offer"
           }
         ]
       }
@@ -76,9 +77,10 @@ export async function sendTikTokEvent(email, orderId, req) {
  *
  * @param {string} email - Customer email address
  * @param {string} orderId - Order identifier (e.g. PayPal Order ID for deduplication)
+ * @param {number} capturedValue - Exact numerical value of settled transaction
  * @param {import('http').IncomingMessage} req - The incoming HTTP request object
  */
-export async function sendMetaCAPIEvent(email, orderId, req) {
+export async function sendMetaCAPIEvent(email, orderId, capturedValue, req) {
   try {
     const pixelId = process.env.META_PIXEL_ID;
     const accessToken = process.env.META_ACCESS_TOKEN;
@@ -120,8 +122,8 @@ export async function sendMetaCAPIEvent(email, orderId, req) {
           },
           custom_data: {
             currency: "USD",
-            value: 27.00,
-            content_name: "Portfolio Career School - Prompt Pack",
+            value: capturedValue || 27.00,
+            content_name: "Portfolio Career School Offer",
             content_ids: ["pcs-prompt-pack"],
             content_type: "product"
           }
@@ -189,6 +191,10 @@ export default async function handler(req, res) {
       return res.status(400).json(captureData);
     }
 
+    // Extract exact payload-derived captured value from PayPal response
+    const captureObj = captureData.purchase_units?.[0]?.payments?.captures?.[0];
+    const capturedValue = captureObj?.amount?.value ? parseFloat(captureObj.amount.value) : 27.00;
+
     // 3. THE KIT FULFILLMENT LOGIC
     // Replace these placeholder numbers with your real Kit Tag IDs from Phase 1
     const TAGS = {
@@ -199,15 +205,9 @@ export default async function handler(req, res) {
 
     const targetTags = [TAGS.basePack]; // Every buyer automatically gets the base prompt pack tag
 
-    // Read the items matching the transaction history inside PayPal's secure response data
-    const description = captureData.purchase_units[0].payments.captures[0].custom_id || "";
-    
-    // Check which order bumps were added based on the final total calculation
-    const totalPaid = parseFloat(captureData.purchase_units[0].payments.captures[0].amount.value);
-    
-    if (totalPaid === 44) targetTags.push(TAGS.bumpChecklist);
-    if (totalPaid === 39) targetTags.push(TAGS.bumpCalculator);
-    if (totalPaid === 56) {
+    if (capturedValue === 44) targetTags.push(TAGS.bumpChecklist);
+    if (capturedValue === 39) targetTags.push(TAGS.bumpCalculator);
+    if (capturedValue === 56) {
       targetTags.push(TAGS.bumpChecklist);
       targetTags.push(TAGS.bumpCalculator);
     }
@@ -224,16 +224,16 @@ export default async function handler(req, res) {
       });
     }
 
-    // 5. Fire TikTok and Meta Server-to-Server (S2S) tracking asynchronously (non-blocking)
-    sendTikTokEvent(email, orderID, req).catch(err => {
+    // 5. Fire TikTok and Meta Server-to-Server (S2S) tracking asynchronously (non-blocking) with dynamic capturedValue
+    sendTikTokEvent(email, orderID, capturedValue, req).catch(err => {
       console.error('Background sendTikTokEvent error:', err);
     });
 
-    sendMetaCAPIEvent(email, orderID, req).catch(err => {
+    sendMetaCAPIEvent(email, orderID, capturedValue, req).catch(err => {
       console.error('Background sendMetaCAPIEvent error:', err);
     });
 
-    return res.status(200).json({ success: true, status: 'COMPLETED' });
+    return res.status(200).json({ success: true, status: 'COMPLETED', value: capturedValue, orderID });
   } catch (err) {
     console.error("PayPal Capture Order Error: ", err);
     return res.status(500).json({ error: "Failed to verify transaction." });

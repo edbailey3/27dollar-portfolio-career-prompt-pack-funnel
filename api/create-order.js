@@ -2,12 +2,16 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { bump1, bump2 } = req.body || {};
+    const { bump1, bump2, amount } = req.body || {};
 
-    // Hardcoded server-side source of truth pricing metrics
+    // Calculate server-side source of truth pricing metrics
     let total = 27; 
     if (bump1) total += 17;
     if (bump2) total += 12;
+
+    const finalAmount = (amount && !isNaN(parseFloat(amount))) 
+      ? parseFloat(amount).toFixed(2) 
+      : total.toFixed(2);
 
     // 1. Get OAuth Access Token from PayPal
     const auth = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_SECRET_KEY}`).toString('base64');
@@ -31,7 +35,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         intent: 'CAPTURE',
         purchase_units: [{
-          amount: { currency_code: 'USD', value: total.toString() },
+          amount: { currency_code: 'USD', value: finalAmount },
           description: "Portfolio Career School - Prompt Pack Order"
         }]
       })
