@@ -161,28 +161,32 @@ if(document.getElementById('paypal-button-container')){
         return actions.reject();
       } else {
         if (errorEl) errorEl.style.display = 'none';
-        return actions.resolve();
+
+        // Fire POST request to /api/checkout-initiated to sync lead to Kit BEFORE creating the PayPal order
+        return fetch('/api/checkout-initiated', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: emailInput, product: 'Prompt Pack' })
+        })
+        .then(() => actions.resolve())
+        .catch(err => {
+          console.error("Checkout initiated sync error:", err);
+          return actions.resolve();
+        });
       }
     },
 
     createOrder: function(data, actions) {
-      const emailInput = document.getElementById('customer-email')?.value?.trim();
+      const b1 = document.getElementById('bump1-check')?.checked || false;
+      const b2 = document.getElementById('bump2-check')?.checked || false;
 
-      // Sync lead to Kit first, then create PayPal Order
-      return fetch('/api/checkout-initiated', {
+      return fetch('/api/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailInput, product: 'Prompt Pack' })
+        body: JSON.stringify({ bump1: b1, bump2: b2 })
       })
-      .then(() => {
-        return fetch('/api/create-order', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ amount: '27.00' })
-        })
-        .then(res => res.json())
-        .then(order => order.id);
-      });
+      .then(res => res.json())
+      .then(order => order.id);
     },
 
     onApprove: function(data, actions) {
@@ -207,10 +211,16 @@ if(document.getElementById('paypal-button-container')){
           return;
         }
 
-        // 3. SUCCESS: Cash cleared into PayPal
+        // 3. SUCCESS: Cash cleared into PayPal (Deterministic Purchase Trigger)
         if (details.status === 'COMPLETED') {
+          // Client-Side Meta Pixel Deduplication using eventID (PayPal Order ID)
           if (typeof fbq === 'function') {
-            fbq('track', 'Purchase', { value: currentTotalAmount || 27.00, currency: 'USD' });
+            fbq('track', 'Purchase', {
+              value: currentTotalAmount || 27.00,
+              currency: 'USD',
+              content_name: 'Portfolio Career School - Prompt Pack',
+              content_type: 'product'
+            }, { eventID: data.orderID });
           }
 
           // GA4 Purchase event via GTM DataLayer
