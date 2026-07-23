@@ -1,7 +1,50 @@
-/* =========================================================
-   PORTFOLIO CAREER PROMPT PACK — FUNNEL SCRIPT
-   Handles: FAQ accordions, order bump math, upsell buttons.
-   ========================================================= */
+// ---------- ATTRIBUTION PARAMETER PERSISTENCE & FORWARDING ----------
+(function captureAndPersistAttributionParams() {
+  if (typeof window === 'undefined') return;
+
+  const ATTRIBUTION_KEYS = [
+    'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+    'fbclid', 'gclid', 'ttclid', 'msclkid'
+  ];
+
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    ATTRIBUTION_KEYS.forEach(function(key) {
+      if (urlParams.has(key)) {
+        sessionStorage.setItem('attr_' + key, urlParams.get(key));
+      }
+    });
+
+    // Reattach persisted params to internal CTA links (e.g. index.html -> checkout.html)
+    document.addEventListener('DOMContentLoaded', function() {
+      const storedParams = new URLSearchParams();
+      ATTRIBUTION_KEYS.forEach(function(key) {
+        const val = sessionStorage.getItem('attr_' + key);
+        if (val) storedParams.set(key, val);
+      });
+
+      const queryString = storedParams.toString();
+      if (!queryString) return;
+
+      const links = document.querySelectorAll('a[href*="checkout.html"], a[href*="upsell.html"]');
+      links.forEach(function(link) {
+        try {
+          const hrefUrl = new URL(link.href, window.location.origin);
+          storedParams.forEach(function(v, k) {
+            if (!hrefUrl.searchParams.has(k)) {
+              hrefUrl.searchParams.set(k, v);
+            }
+          });
+          link.href = hrefUrl.toString();
+        } catch (e) {
+          // Fallback if URL parsing fails
+        }
+      });
+    });
+  } catch (err) {
+    console.error("Attribution persistence error:", err);
+  }
+})();
 
 // ---------- FAQ accordion (sales page + upsell page) ----------
 function attachFAQListeners(){
@@ -108,7 +151,12 @@ if(buyerEmailInput){
 
 
 // ---------- UPSELL PAGE: accept / decline ----------
+var isUpsellProcessed = false;
+
 function acceptUpsell(){
+  if (isUpsellProcessed) return;
+  isUpsellProcessed = true;
+
   const upsellOrderId = 'upsell_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11);
   const upsellValue = 47.00;
 

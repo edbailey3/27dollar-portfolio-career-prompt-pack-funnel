@@ -21,6 +21,16 @@ export default async function handler(req, res) {
   try {
     const body = req.body || {};
 
+    // Optional webhook verification token check (if configured)
+    const secretToken = process.env.TIKTOK_WEBHOOK_SECRET;
+    if (secretToken) {
+      const incomingToken = req.headers['x-tiktok-token'] || req.query?.token || body.secret_token;
+      if (incomingToken !== secretToken) {
+        console.warn('[TikTok Webhook] Unauthorized webhook attempt - token mismatch');
+        return res.status(200).json({ status: 'success', warning: 'Unauthorized' });
+      }
+    }
+
     // 2. Verification / Challenge Ping in POST body
     if (body.type === 'verify' || body.challenge || body.event === 'ping') {
       return res.status(200).json({ success: true, challenge: body.challenge });
@@ -35,6 +45,12 @@ export default async function handler(req, res) {
     let extractedPhone = '';
     let extractedCustomAnswer = '';
 
+    // Sanitizer helper for raw strings / XSS prevention
+    const sanitize = (str) => {
+      if (!str || typeof str !== 'string') return '';
+      return str.replace(/</g, '&lt;').replace(/>/g, '&gt;').trim();
+    };
+
     // Helper to find field value in array of fields/user_data
     const findFieldValue = (fieldsArray, keywords) => {
       if (!Array.isArray(fieldsArray)) return '';
@@ -43,7 +59,7 @@ export default async function handler(req, res) {
         const label = (field.field_label || field.label || '').toLowerCase();
         if (keywords.some(kw => name.includes(kw) || label.includes(kw))) {
           const val = field.values ? field.values[0] : (field.value || field.val);
-          if (val) return String(val).trim();
+          if (val) return sanitize(String(val));
         }
       }
       return '';
@@ -61,17 +77,20 @@ export default async function handler(req, res) {
     }
 
     // Fallback to flat JSON payload fields if user_data array wasn't present
-    if (!extractedEmail && body.email) extractedEmail = String(body.email).trim();
-    if (!extractedEmail && body.email_address) extractedEmail = String(body.email_address).trim();
-    if (!extractedFirstName && body.first_name) extractedFirstName = String(body.first_name).trim();
-    if (!extractedLastName && body.last_name) extractedLastName = String(body.last_name).trim();
-    if (!extractedPhone && (body.phone_number || body.phone)) extractedPhone = String(body.phone_number || body.phone).trim();
-    if (!extractedCustomAnswer && (body.prior_investments || body.custom_answer)) extractedCustomAnswer = String(body.prior_investments || body.custom_answer).trim();
+    if (!extractedEmail && body.email) extractedEmail = sanitize(String(body.email));
+    if (!extractedEmail && body.email_address) extractedEmail = sanitize(String(body.email_address));
+    if (!extractedFirstName && body.first_name) extractedFirstName = sanitize(String(body.first_name));
+    if (!extractedLastName && body.last_name) extractedLastName = sanitize(String(body.last_name));
+    if (!extractedPhone && (body.phone_number || body.phone)) extractedPhone = sanitize(String(body.phone_number || body.phone));
+    if (!extractedCustomAnswer && (body.prior_investments || body.custom_answer)) extractedCustomAnswer = sanitize(String(body.prior_investments || body.custom_answer));
+
+    // Normalize email
+    extractedEmail = extractedEmail.toLowerCase().trim();
 
     // 4. Validate Email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!extractedEmail || !emailRegex.test(extractedEmail)) {
-      console.warn(`[TikTok Webhook] Received payload without valid email for Form ${formId}:`, JSON.stringify(body));
+      console.warn(`[TikTok Webhook] Received payload without valid email for Form ${formId}`);
       // Always respond with HTTP 200 so TikTok's webhook engine doesn't disable URL
       return res.status(200).json({ status: 'success', warning: 'Missing or invalid email input' });
     }
@@ -81,12 +100,8 @@ export default async function handler(req, res) {
     const kitApiSecret = process.env.KIT_API_SECRET;
 
     if (!kitApiSecret) {
-      console.error('[TikTok Webhook] Error: KIT_API_SECRET is missing in environment variables.');
+      console.warn('[TikTok Webhook] Warning: KIT_API_SECRET is missing in environment variables.');
       return res.status(200).json({ status: 'success', warning: 'Server configuration missing KIT_API_SECRET' });
-    }
-
-    if (!kitTagId) {
-      console.warn('[TikTok Webhook] Warning: KIT_TIKTOK_TAG_ID is missing. Lead will not be tagged.');
     }
 
     const kitEndpoint = kitTagId 
@@ -104,24 +119,33 @@ export default async function handler(req, res) {
       }
     };
 
-    const kitResponse = await fetch(kitEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(kitPayload)
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-    if (!kitResponse.ok) {
-      const errorText = await kitResponse.text();
-      console.error(`[TikTok Webhook] Kit API error for ${extractedEmail}:`, errorText);
-    } else {
-      console.log(`[TikTok Webhook] Form ${formId} lead synced to Kit: ${extractedEmail}`);
+    try {
+      const kitResponse = await fetch(kitEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify(kitPayload)
+      });
+
+      if (!kitResponse.ok) {
+        console.error(`[TikTok Webhook] Kit API error for ${extractedEmail}`);
+      } else {
+        console.log(`[TikTok Webhook] Form ${formId} lead synced to Kit: ${extractedEmail}`);
+      }
+    } catch (kitErr) {
+      console.error(`[TikTok Webhook] Kit dispatch timeout/error: ${kitErr.message}`);
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     // 6. Return HTTP 200 success to TikTok
     return res.status(200).json({ status: 'success' });
   } catch (err) {
-    console.error('[TikTok Webhook] Error processing lead submission:', err);
+    console.error('[TikTok Webhook] Error processing lead submission:', err?.message || err);
     // Return 200 so TikTok webhook retry loop is not triggered uncontrollably
-    return res.status(200).json({ status: 'success', error: err.message });
+    return res.status(200).json({ status: 'success' });
   }
 }
