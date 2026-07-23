@@ -7,6 +7,18 @@
     {
       "source": "/metrics/collect",
       "destination": "https://www.google-analytics.com/g/collect"
+    },
+    {
+      "source": "/metrics/meta/fbevents.js",
+      "destination": "https://connect.facebook.net/en_US/fbevents.js"
+    },
+    {
+      "source": "/metrics/meta/tr",
+      "destination": "https://www.facebook.com/tr/"
+    },
+    {
+      "source": "/metrics/tiktok/events.js",
+      "destination": "https://analytics.tiktok.com/i18n/pixel/events.js"
     }
   ]
 }

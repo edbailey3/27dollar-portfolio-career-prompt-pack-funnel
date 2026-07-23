@@ -34,13 +34,15 @@ var PRICES = {
 
 var currentTotalAmount = PRICES.base;
 
-function toggleBump(boxId, checkboxId){
+function toggleBump(boxId, checkboxId, evt){
   var box = document.getElementById(boxId);
   var checkbox = document.getElementById(checkboxId);
   if(!box || !checkbox) return;
 
+  var e = evt || (typeof window !== 'undefined' ? window.event : null);
+
   // If the click came from the row itself (not the checkbox), flip it manually
-  if(typeof event !== 'undefined' && event && event.target && event.target.id !== checkboxId){
+  if(e && e.target && e.target.id !== checkboxId){
     checkbox.checked = !checkbox.checked;
   }
 
