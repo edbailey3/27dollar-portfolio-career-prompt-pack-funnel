@@ -36,7 +36,7 @@ export async function sendTikTokEvent(email, orderId, capturedValue, req) {
         ip: clientIp,
         user_agent: userAgent,
         page: {
-          url: "https://yourdomain.com/checkout.html"
+          url: (process.env.SITE_URL || 'https://portfoliocareerschool.com') + '/checkout.html'
         }
       },
       properties: {
@@ -112,7 +112,7 @@ export async function sendMetaCAPIEvent(email, orderId, capturedValue, req) {
           event_time: Math.floor(Date.now() / 1000),
           event_id: orderId,
           action_source: "website",
-          event_source_url: "https://yourdomain.com/checkout.html",
+          event_source_url: (process.env.SITE_URL || 'https://portfoliocareerschool.com') + '/checkout.html',
           user_data: {
             em: [hashedEmail],
             client_ip_address: clientIp,

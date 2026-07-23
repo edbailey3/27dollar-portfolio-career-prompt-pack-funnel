@@ -2,49 +2,59 @@
 (function captureAndPersistAttributionParams() {
   if (typeof window === 'undefined') return;
 
-  const ATTRIBUTION_KEYS = [
+  var ATTRIBUTION_KEYS = [
     'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
     'fbclid', 'gclid', 'ttclid', 'msclkid'
   ];
 
+  // FIX: sessionStorage read/write fully wrapped — guards against SecurityError
+  // in Safari/Brave Private Mode where sessionStorage access throws synchronously.
+  function safeSessionSet(key, value) {
+    try { sessionStorage.setItem(key, value); } catch (e) { /* storage disabled */ }
+  }
+  function safeSessionGet(key) {
+    try { return sessionStorage.getItem(key); } catch (e) { return null; }
+  }
+
   try {
-    const urlParams = new URLSearchParams(window.location.search);
+    var urlParams = new URLSearchParams(window.location.search);
     ATTRIBUTION_KEYS.forEach(function(key) {
       if (urlParams.has(key)) {
-        sessionStorage.setItem('attr_' + key, urlParams.get(key));
+        safeSessionSet('attr_' + key, urlParams.get(key));
       }
     });
+  } catch (e) {
+    // URLSearchParams failed — non-critical, continue
+  }
 
-    // Reattach persisted params to internal CTA links (e.g. index.html -> checkout.html)
-    document.addEventListener('DOMContentLoaded', function() {
-      const storedParams = new URLSearchParams();
+  // Reattach persisted params to internal CTA links on DOM ready
+  // FIX: inner callback wrapped in its own try/catch — isolated from outer IIFE
+  document.addEventListener('DOMContentLoaded', function() {
+    try {
+      var storedParams = new URLSearchParams();
       ATTRIBUTION_KEYS.forEach(function(key) {
-        const val = sessionStorage.getItem('attr_' + key);
+        var val = safeSessionGet('attr_' + key);
         if (val) storedParams.set(key, val);
       });
 
-      const queryString = storedParams.toString();
-      if (!queryString) return;
+      if (!storedParams.toString()) return;
 
-      const links = document.querySelectorAll('a[href*="checkout.html"], a[href*="upsell.html"]');
+      var links = document.querySelectorAll('a[href*="checkout.html"], a[href*="upsell.html"]');
       links.forEach(function(link) {
         try {
-          const hrefUrl = new URL(link.href, window.location.origin);
+          var hrefUrl = new URL(link.href, window.location.origin);
           storedParams.forEach(function(v, k) {
-            if (!hrefUrl.searchParams.has(k)) {
-              hrefUrl.searchParams.set(k, v);
-            }
+            if (!hrefUrl.searchParams.has(k)) hrefUrl.searchParams.set(k, v);
           });
           link.href = hrefUrl.toString();
-        } catch (e) {
-          // Fallback if URL parsing fails
-        }
+        } catch (e) { /* URL parse failed for this link */ }
       });
-    });
-  } catch (err) {
-    console.error("Attribution persistence error:", err);
-  }
+    } catch (err) {
+      console.warn('Attribution link reattach error:', err);
+    }
+  });
 })();
+
 
 // ---------- FAQ accordion (sales page + upsell page) ----------
 function attachFAQListeners(){
@@ -113,16 +123,25 @@ function updateTotal(){
     lines += bumpLineHTML('Pricing Calculator', PRICES.bump2);
   }
 
+  // FIX: Use textContent-safe assignment — summaryEl.innerHTML only receives
+  // output from bumpLineHTML which is now built with escaped text nodes (see below)
   if(summaryEl) summaryEl.innerHTML = lines;
   totalEl.innerHTML = '$' + total + '<span> USD</span>';
   currentTotalAmount = total;
 }
 
 function bumpLineHTML(name, price){
+  // FIX: Escape name before injecting into innerHTML to prevent any future XSS
+  // if name is ever externally supplied. Price is always numeric — safe.
+  var safeName = String(name)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
   return '<div class="product-line" style="border-bottom:1px dashed #3A362D; padding-bottom:14px; margin-bottom:14px;">' +
            '<div class="product-thumb" style="background:var(--coral); color:var(--paper); font-size:12px;">+</div>' +
-           '<div><h3 style="font-size:14px;">' + name + '</h3><p>Order bump</p></div>' +
-           '<div class="price">$' + price + '</div>' +
+           '<div><h3 style="font-size:14px;">' + safeName + '</h3><p>Order bump</p></div>' +
+           '<div class="price">$' + Number(price) + '</div>' +
          '</div>';
 }
 
@@ -135,7 +154,7 @@ if(document.getElementById('total-amount')){
 var buyerEmailInput = document.getElementById('customer-email');
 if(buyerEmailInput){
   buyerEmailInput.addEventListener('blur', function(){
-    var email = buyerEmailInput.value.trim();
+    var email = buyerEmailInput.value.trim().toLowerCase();
     var emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if(emailRegex.test(email)){
       fetch('/api/draft-checkout', {
@@ -143,7 +162,7 @@ if(buyerEmailInput){
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email })
       }).catch(function(err){
-        console.error("Draft checkout background sync failed:", err);
+        console.warn('Draft checkout background sync failed:', err);
       });
     }
   });
@@ -157,8 +176,8 @@ function acceptUpsell(){
   if (isUpsellProcessed) return;
   isUpsellProcessed = true;
 
-  const upsellOrderId = 'upsell_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11);
-  const upsellValue = 47.00;
+  var upsellOrderId = 'upsell_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11);
+  var upsellValue = 47.00;
 
   if (typeof fbq === 'function') {
     fbq('track', 'Purchase', {
@@ -169,7 +188,6 @@ function acceptUpsell(){
     }, { eventID: upsellOrderId });
   }
 
-  // ── MASTER UPSELL DATA SIGNAL ──
   window.dataLayer = window.dataLayer || [];
   window.dataLayer.push({
     'event': 'upsell_completed',
@@ -192,20 +210,36 @@ function declineUpsell(){
 }
 
 function showConfirm(title, text){
-  var offer = document.getElementById('offer-panel');
-  var confirm = document.getElementById('confirm-panel');
+  var offer        = document.getElementById('offer-panel');
+  var confirm      = document.getElementById('confirm-panel');
   var confirmTitle = document.getElementById('confirm-title');
-  var confirmText = document.getElementById('confirm-text');
-  if(!offer || !confirm) return;
+  var confirmText  = document.getElementById('confirm-text');
+
+  // FIX: Guard ALL four elements, not just the first two
+  if(!offer || !confirm || !confirmTitle || !confirmText) return;
 
   confirmTitle.textContent = title;
-  confirmText.textContent = text;
+  confirmText.textContent  = text;
   offer.style.display = 'none';
   confirm.classList.add('show');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+
+
 // ---------- PAYPAL SECURE DISPATCH INFRASTRUCTURE ----------
-if(document.getElementById('paypal-button-container')){
+// FIX: Deferred inside DOMContentLoaded to eliminate the temporal dead zone where
+// `paypal` global might be undefined if SDK hasn't executed yet. Guard added.
+document.addEventListener('DOMContentLoaded', function() {
+  var container = document.getElementById('paypal-button-container');
+  if (!container) return; // Not on checkout page — exit cleanly
+
+  // FIX: Explicit PayPal SDK availability guard before calling paypal.Buttons()
+  if (typeof paypal === 'undefined') {
+    console.error('PayPal SDK not loaded. Cannot initialize checkout buttons.');
+    container.innerHTML = '<p style="color:#cc0000; font-size:14px; text-align:center;">Payment system failed to load. Please refresh the page.</p>';
+    return;
+  }
+
   paypal.Buttons({
     style: {
       layout: 'vertical',
@@ -215,71 +249,92 @@ if(document.getElementById('paypal-button-container')){
     },
 
     onClick: function(data, actions) {
-      const emailInput = document.getElementById('customer-email')?.value?.trim();
-      const errorEl = document.getElementById('email-error');
+      var emailEl = document.getElementById('customer-email');
+      var emailInput = emailEl ? emailEl.value.trim().toLowerCase() : '';
+      var errorEl = document.getElementById('email-error');
 
       if (!emailInput || !emailInput.includes('@')) {
         if (errorEl) errorEl.style.display = 'block';
-        document.getElementById('customer-email')?.focus();
+        if (emailEl) emailEl.focus();
         return actions.reject();
-      } else {
-        if (errorEl) errorEl.style.display = 'none';
-
-        // Fire POST request to /api/checkout-initiated to sync lead to Kit BEFORE creating the PayPal order
-        return fetch('/api/checkout-initiated', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: emailInput, product: 'Prompt Pack' })
-        })
-        .then(() => actions.resolve())
-        .catch(err => {
-          console.error("Checkout initiated sync error:", err);
-          return actions.resolve();
-        });
       }
+
+      if (errorEl) errorEl.style.display = 'none';
+
+      return fetch('/api/checkout-initiated', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailInput, product: 'Prompt Pack' })
+      })
+      .then(function() { return actions.resolve(); })
+      .catch(function(err) {
+        console.warn('Checkout initiated sync error (non-fatal):', err);
+        return actions.resolve(); // Allow checkout to proceed even if Kit sync fails
+      });
     },
 
     createOrder: function(data, actions) {
-      const b1 = document.getElementById('bump1-check')?.checked || false;
-      const b2 = document.getElementById('bump2-check')?.checked || false;
-      const selectedAmount = (27 + (b1 ? 17 : 0) + (b2 ? 12 : 0)).toFixed(2);
+      var b1 = !!(document.getElementById('bump1-check') || {}).checked;
+      var b2 = !!(document.getElementById('bump2-check') || {}).checked;
+      var selectedAmount = (27 + (b1 ? 17 : 0) + (b2 ? 12 : 0)).toFixed(2);
 
       return fetch('/api/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bump1: b1, bump2: b2, amount: selectedAmount })
       })
-      .then(res => res.json())
-      .then(order => order.id);
+      .then(function(res) {
+        if (!res.ok) throw new Error('Create order request failed with status ' + res.status);
+        return res.json();
+      })
+      .then(function(order) {
+        if (!order || !order.id) throw new Error('PayPal order ID missing in response');
+        return order.id;
+      })
+      // FIX: Catch so PayPal SDK gets a rejection signal and can show its own error UI
+      .catch(function(err) {
+        console.error('createOrder failed:', err);
+        return actions.reject();
+      });
     },
 
     onApprove: function(data, actions) {
-      const customerEmail = document.getElementById('customer-email')?.value || '';
+      var emailEl = document.getElementById('customer-email');
+      var customerEmail = emailEl ? emailEl.value.trim().toLowerCase() : '';
 
       return fetch('/api/capture-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderID: data.orderID, email: customerEmail })
       })
-      .then(res => res.json())
-      .then(details => {
-        // 1. Handle Card / Bank Declines (Re-open modal for user to pick another card)
-        const errorDetail = details?.details?.[0];
-        if (errorDetail?.issue === 'INSTRUMENT_DECLINED') {
+      .then(function(res) {
+        if (!res.ok) throw new Error('Capture order returned status ' + res.status);
+        return res.json();
+      })
+      .then(function(details) {
+        // FIX: Null guard on details before any property access
+        if (!details) {
+          console.error('Capture order returned null response');
+          alert('Payment could not be verified. Please contact support.');
+          return;
+        }
+
+        // 1. Handle Card / Bank Declines
+        var errorDetail = details.details ? details.details[0] : null;
+        if (errorDetail && errorDetail.issue === 'INSTRUMENT_DECLINED') {
           return actions.restart();
         }
 
-        // 2. Handle Other Unprocessable Errors
+        // 2. Handle Other Errors
         if (details.error || errorDetail) {
           alert('Payment could not be processed. Please try a different payment method.');
           return;
         }
 
-        // 3. SUCCESS: Cash cleared into PayPal (Deterministic Purchase Trigger)
+        // 3. SUCCESS path
         if (details.status === 'COMPLETED') {
-          const capturedValue = details.value || currentTotalAmount || 27.00;
+          var capturedValue = details.value || currentTotalAmount || 27.00;
 
-          // Client-Side Meta Pixel Deduplication using eventID (PayPal Order ID)
           if (typeof fbq === 'function') {
             fbq('track', 'Purchase', {
               value: capturedValue,
@@ -289,7 +344,6 @@ if(document.getElementById('paypal-button-container')){
             }, { eventID: data.orderID });
           }
 
-          // GA4 Purchase event via GTM DataLayer
           window.dataLayer = window.dataLayer || [];
           window.dataLayer.push({
             'event': 'purchase_funnel_completed',
@@ -300,12 +354,17 @@ if(document.getElementById('paypal-button-container')){
 
           window.location.href = '/upsell.html';
         }
+      })
+      .catch(function(err) {
+        console.error('onApprove capture error:', err);
+        alert('We received your payment but had trouble verifying it. Please contact support with your PayPal receipt.');
       });
     },
 
     onError: function(err) {
-      console.error("Secure Processing Error: ", err);
-      alert("Transaction verification failed. Please try again or use an alternative card.");
+      console.error('PayPal SDK Error:', err);
+      alert('Transaction verification failed. Please try again or use an alternative card.');
     }
+
   }).render('#paypal-button-container');
-}
+});
