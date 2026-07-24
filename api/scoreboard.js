@@ -18,8 +18,14 @@ import crypto from 'crypto';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-const PAYPAL_BASE    = 'https://api-m.paypal.com';
-const SITE_URL       = process.env.SITE_URL || 'https://portfoliocareerschool.com';
+// Align base URL with capture-order.js (production) with opt-in sandbox override.
+// Set PAYPAL_MODE=sandbox OR PAYPAL_ENVIRONMENT=sandbox in Vercel env vars to switch.
+const _mode = (process.env.PAYPAL_MODE || process.env.PAYPAL_ENVIRONMENT || '').toLowerCase();
+const PAYPAL_BASE = _mode === 'sandbox'
+  ? 'https://api-m.sandbox.paypal.com'
+  : 'https://api-m.paypal.com';
+
+const SITE_URL = process.env.SITE_URL || 'https://portfoliocareerschool.com';
 
 // Product catalogue — used to derive item labels from captured amounts.
 const PRODUCTS = {
@@ -67,8 +73,14 @@ function isAuthenticated(req) {
 
 /**
  * Retrieve a PayPal OAuth2 access token using client credentials.
+ * Env vars: PAYPAL_CLIENT_ID / PAYPAL_SECRET_KEY  (same as capture-order.js)
  */
 async function getPayPalToken() {
+  // Guard: surface missing credentials immediately rather than sending a blank Basic header.
+  if (!process.env.PAYPAL_CLIENT_ID || !process.env.PAYPAL_SECRET_KEY) {
+    throw new Error('PAYPAL_CLIENT_ID or PAYPAL_SECRET_KEY env var is not set.');
+  }
+
   const auth = Buffer.from(
     `${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_SECRET_KEY}`
   ).toString('base64');
@@ -82,9 +94,21 @@ async function getPayPalToken() {
     },
   });
 
-  if (!res.ok) throw new Error(`PayPal OAuth failed: ${res.status}`);
-  const { access_token } = await res.json();
-  return access_token;
+  if (!res.ok) {
+    // Forensic: capture the raw response body before throwing so the root cause
+    // is visible in Vercel Function Logs, not just a generic status code.
+    const rawBody = await res.text();
+    console.error('PayPal Error [OAuth /v1/oauth2/token]:', res.status, rawBody);
+    throw new Error(`PayPal OAuth handshake failed — HTTP ${res.status}: ${rawBody}`);
+  }
+
+  const json = await res.json();
+  if (!json.access_token) {
+    console.error('PayPal Error [OAuth]: response OK but access_token missing:', JSON.stringify(json));
+    throw new Error('PayPal OAuth returned no access_token.');
+  }
+
+  return json.access_token;
 }
 
 /**
@@ -101,14 +125,17 @@ async function fetchPayPalTransactions(token, startDate, endDate) {
     page: '1',
   });
 
-  const res = await fetch(
-    `${PAYPAL_BASE}/v1/reporting/transactions?${params}`,
-    { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
-  );
+  const url = `${PAYPAL_BASE}/v1/reporting/transactions?${params}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+  });
 
   if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`PayPal Transactions API failed: ${res.status} — ${txt}`);
+    // Forensic: log HTTP status + full raw body so the exact PayPal error message
+    // (e.g. PERMISSION_DENIED, INVALID_REQUEST) appears in Vercel Function Logs.
+    const rawBody = await res.text();
+    console.error('PayPal Error [Reporting /v1/reporting/transactions]:', res.status, rawBody);
+    throw new Error(`PayPal Transactions API failed — HTTP ${res.status}: ${rawBody}`);
   }
 
   const data = await res.json();
@@ -635,17 +662,16 @@ export default async function handler(req, res) {
     }));
 
   } catch (err) {
-    console.error('[scoreboard] Fatal error:', err);
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    return res.status(503).send(`<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Service Unavailable</title>
-<style>*{margin:0;padding:0;box-sizing:border-box}html,body{height:100%;background:#0a0a0a;display:flex;align-items:center;justify-content:center;font-family:-apple-system,sans-serif}
-.card{text-align:center;padding:2.5rem 2rem;border:1px solid #1f1f1f;border-radius:16px;max-width:340px}
-.icon{font-size:2.5rem;margin-bottom:1rem}h1{color:#e73d00;font-size:1.1rem;font-weight:700;margin-bottom:.5rem}p{color:#555;font-size:.82rem;line-height:1.5}</style></head>
-<body><div class="card"><div class="icon">⚠️</div>
-<h1>Data Unavailable</h1>
-<p>Could not reach the PayPal Transactions API.<br>Check server logs for details.</p>
-</div></body></html>`);
+    // Forensic: always log the full error server-side for Vercel Function Logs.
+    console.error('[scoreboard] Fatal error:', err.message, err.stack);
+
+    // Return structured JSON so the root cause is immediately readable in the
+    // browser during diagnostics — avoids needing to open Vercel logs for basic triage.
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    return res.status(503).json({
+      error: true,
+      message: 'Could not reach PayPal',
+      details: err.message,
+    });
   }
 }
