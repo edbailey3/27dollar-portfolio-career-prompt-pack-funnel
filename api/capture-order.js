@@ -1,4 +1,7 @@
 import crypto from 'crypto';
+import { Redis } from '@upstash/redis';
+
+const redis = Redis.fromEnv();
 
 /**
  * Helper utility to send Server-to-Server (S2S) tracking event to TikTok Events API (v1.3).
@@ -194,6 +197,28 @@ export default async function handler(req, res) {
     // Extract exact payload-derived captured value from PayPal response
     const captureObj = captureData.purchase_units?.[0]?.payments?.captures?.[0];
     const capturedValue = captureObj?.amount?.value ? parseFloat(captureObj.amount.value) : 27.00;
+
+    // Upstash Redis Sales Ledger Recording
+    try {
+      let resolvedItemName = "Prompt Pack ($27)";
+      if (capturedValue === 56) resolvedItemName = "Prompt Pack + Both Bumps ($56)";
+      else if (capturedValue === 44) resolvedItemName = "Prompt Pack + Checklist Bump ($44)";
+      else if (capturedValue === 39) resolvedItemName = "Prompt Pack + Calculator Bump ($39)";
+      else if (capturedValue !== 27) resolvedItemName = `Prompt Pack ($${capturedValue})`;
+
+      const orderRecord = {
+        orderId: captureObj?.id || captureData.id || orderID,
+        grossAmount: parseFloat(capturedValue),
+        items: resolvedItemName,
+        timestamp: new Date().toISOString(),
+        datePT: new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' }),
+        timePT: new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit' })
+      };
+
+      await redis.rpush('pcs_prompt_pack_orders', JSON.stringify(orderRecord));
+    } catch (redisErr) {
+      console.error('Failed to log order to Upstash Redis:', redisErr);
+    }
 
     // 3. THE KIT FULFILLMENT LOGIC
     // Replace these placeholder numbers with your real Kit Tag IDs from Phase 1
