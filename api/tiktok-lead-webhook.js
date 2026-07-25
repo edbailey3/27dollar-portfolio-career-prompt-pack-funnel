@@ -96,12 +96,16 @@ export default async function handler(req, res) {
     }
 
     // 5. Kit (ConvertKit) API Dispatch
-    const kitTagId = process.env.KIT_TIKTOK_TAG_ID;
-    const kitApiSecret = process.env.KIT_API_SECRET;
+    const kitTagId = process.env.KIT_TIKTOK_TAG_ID || process.env.Kit_tiktok_tag_id;
+    const kitApiSecret = process.env.KIT_API_SECRET || process.env.KIT_API_KEY || process.env.CONVERTKIT_API_KEY;
 
     if (!kitApiSecret) {
-      console.warn('[TikTok Webhook] Warning: KIT_API_SECRET is missing in environment variables.');
+      console.warn('[Kit Error]: Missing KIT_API_SECRET in env vars.');
       return res.status(200).json({ status: 'success', warning: 'Server configuration missing KIT_API_SECRET' });
+    }
+
+    if (!kitTagId) {
+      console.warn('[Kit Error]: Missing KIT_TIKTOK_TAG_ID in env vars.');
     }
 
     const kitEndpoint = kitTagId 

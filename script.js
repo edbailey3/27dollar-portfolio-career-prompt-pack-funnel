@@ -359,16 +359,7 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       sendCAPIEvent('InitiateCheckout', icEventId, icCustomData, emailInput);
 
-      return fetch('/api/checkout-initiated', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailInput, product: 'Prompt Pack' })
-      })
-      .then(function() { return actions.resolve(); })
-      .catch(function(err) {
-        console.warn('Checkout initiated sync error (non-fatal):', err);
-        return actions.resolve(); // Allow checkout to proceed even if Kit sync fails
-      });
+      return actions.resolve();
     },
 
     createOrder: function(data, actions) {
