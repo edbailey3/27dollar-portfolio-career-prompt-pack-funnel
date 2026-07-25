@@ -12,6 +12,12 @@
  *   - X-Robots-Tag header blocks all crawler indexing.
  *   - Zero PII: no email addresses, no full street addresses, no card data.
  *   - Geo info is country + city only (aggregated, non-identifiable).
+ *
+ * DATE RANGE STRATEGY:
+ *   PayPal's /v1/reporting/transactions API errors ("Data for the given start
+ *   date is not available") when the window is too narrow (same-day UTC).
+ *   Fix: always request a full 30-day window; filter today's data in memory.
+ *   Dates are formatted WITHOUT milliseconds — PayPal rejects the .000Z suffix.
  */
 
 import crypto from 'crypto';
@@ -29,10 +35,24 @@ const SITE_URL = process.env.SITE_URL || 'https://portfoliocareerschool.com';
 
 // Product catalogue — used to derive item labels from captured amounts.
 const PRODUCTS = {
-  BASE:      { id: 'pcs-prompt-pack',   label: 'Prompt Pack ($27)',         price: 27 },
-  BUMP_CL:   { id: 'pcs-checklist',     label: '+ Career Checklist ($17)',  price: 17 },
+  BASE:      { id: 'pcs-prompt-pack',   label: 'Prompt Pack ($27)',          price: 27 },
+  BUMP_CL:   { id: 'pcs-checklist',     label: '+ Career Checklist ($17)',   price: 17 },
   BUMP_CALC: { id: 'pcs-calculator',    label: '+ Pricing Calculator ($12)', price: 12 },
 };
+
+// ─── DATE HELPERS ─────────────────────────────────────────────────────────────
+
+/**
+ * Format a Date as a clean ISO-8601 string WITHOUT milliseconds.
+ * e.g. "2026-07-25T19:30:00Z"
+ * PayPal's Reporting API rejects dates with a .000Z millisecond suffix.
+ */
+const formatDate = (d) => d.toISOString().split('.')[0] + 'Z';
+
+/**
+ * Return the UTC date string (YYYY-MM-DD) for a given Date.
+ */
+const utcDateStr = (d) => d.toISOString().split('T')[0];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
@@ -112,20 +132,33 @@ async function getPayPalToken() {
 }
 
 /**
- * Fetch PayPal transactions for a date range.
+ * Fetch PayPal transactions for a 30-day window ending now.
+ *
+ * KEY CHANGES vs. prior version:
+ *   - start_date is always 30 days ago (avoids "data not available" error for
+ *     same-day UTC windows that PayPal's Reporting API rejects).
+ *   - Dates are formatted without milliseconds via formatDate() — PayPal rejects .000Z.
+ *   - fields=all to capture transaction_info, cart_info, payer_info in one call.
+ *   - transaction_status filter removed here; we filter in-memory so we can
+ *     count all successful statuses (S = Success, V = Reversal excluded downstream).
+ *
  * Returns the raw `transaction_details` array from PayPal's Reporting API.
  */
-async function fetchPayPalTransactions(token, startDate, endDate) {
+async function fetchPayPalTransactions(token) {
+  const now   = new Date(Date.now());
+  const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // exactly 30 days ago
+
   const params = new URLSearchParams({
-    start_date: startDate,
-    end_date:   endDate,
-    transaction_status: 'S',  // S = Success / settled
-    fields: 'transaction_info,cart_info,payer_info',
-    page_size: '100',
-    page: '1',
+    start_date:         formatDate(start),
+    end_date:           formatDate(now),
+    fields:             'all',
+    page_size:          '100',
+    page:               '1',
   });
 
   const url = `${PAYPAL_BASE}/v1/reporting/transactions?${params}`;
+  console.log('[scoreboard] Fetching PayPal transactions:', url.replace(PAYPAL_BASE, ''));
+
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
   });
@@ -139,6 +172,7 @@ async function fetchPayPalTransactions(token, startDate, endDate) {
   }
 
   const data = await res.json();
+  console.log('[scoreboard] PayPal returned', data.transaction_details?.length ?? 0, 'transactions');
   return data.transaction_details || [];
 }
 
@@ -175,6 +209,81 @@ function safeGeo(payerInfo) {
   }
 }
 
+/**
+ * Aggregate metrics from the raw 30-day transaction list.
+ * Filters in Node.js memory — no extra API calls needed.
+ *
+ * Returns:
+ *   todayYield       — USD revenue for today (UTC)
+ *   todayOrderCount  — completed orders today (UTC)
+ *   thirtyDayYield   — USD revenue for the full 30-day window
+ *   thirtyDayOrders  — completed orders in the 30-day window
+ *   aov              — average order value (today)
+ *   bumpRate         — order bump attach rate today (transactions > $27)
+ *   recentSales      — enriched sale objects, newest-first, capped at 30
+ */
+function aggregateMetrics(transactions, todayUTC) {
+  let todayYield      = 0;
+  let todayOrderCount = 0;
+  let thirtyDayYield  = 0;
+  let thirtyDayOrders = 0;
+  let bumpCount       = 0;
+  const recentSales   = [];
+
+  for (const tx of transactions) {
+    const info  = tx.transaction_info || {};
+    const payer = tx.payer_info       || {};
+
+    // Only count positive-value debits (buyer payment to merchant).
+    const amount = parseFloat(info.transaction_amount?.value || '0');
+    if (amount <= 0) continue;
+
+    // Exclude reversals / refunds — only count status S (Success).
+    const status = (info.transaction_status || '').toUpperCase();
+    if (status !== 'S') continue;
+
+    // ── 30-day totals ──────────────────────────────────────────────────────
+    thirtyDayYield  += amount;
+    thirtyDayOrders += 1;
+
+    // ── today filter ───────────────────────────────────────────────────────
+    const initiationDate = info.transaction_initiation_date || '';
+    const txDayUTC = initiationDate ? utcDateStr(new Date(initiationDate)) : null;
+    const isToday  = txDayUTC === todayUTC;
+
+    if (isToday) {
+      todayYield      += amount;
+      todayOrderCount += 1;
+
+      const hasBump = amount > 27;
+      if (hasBump) bumpCount++;
+
+      recentSales.push({
+        amount,
+        items: resolveItems(amount),
+        geo:   safeGeo(payer),
+        time:  initiationDate || new Date().toISOString(),
+      });
+    }
+  }
+
+  const aov      = todayOrderCount > 0 ? todayYield / todayOrderCount : 0;
+  const bumpRate = todayOrderCount > 0 ? bumpCount  / todayOrderCount : 0;
+
+  // Sort descending (newest first), cap at 30 display rows.
+  recentSales.sort((a, b) => new Date(b.time) - new Date(a.time));
+
+  return {
+    todayYield,
+    todayOrderCount,
+    thirtyDayYield,
+    thirtyDayOrders,
+    aov,
+    bumpRate,
+    recentSales: recentSales.slice(0, 30),
+  };
+}
+
 // ─── UI BUILDER ───────────────────────────────────────────────────────────────
 
 function renderUnauthorized() {
@@ -203,7 +312,11 @@ function renderUnauthorized() {
 </html>`;
 }
 
-function renderDashboard({ todayYield, orderCount, aov, bumpRate, recentSales, asOf }) {
+function renderDashboard({
+  todayYield, todayOrderCount,
+  thirtyDayYield, thirtyDayOrders,
+  aov, bumpRate, recentSales, asOf,
+}) {
   const fmt = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtPct = (n) => (n * 100).toFixed(1) + '%';
   const fmtTime = (iso) => {
@@ -248,6 +361,7 @@ function renderDashboard({ todayYield, orderCount, aov, bumpRate, recentSales, a
     --muted:    #555;
     --dim:      #333;
     --green:    #00c96b;
+    --blue:     #3b82f6;
     --radius:   14px;
     --font:     'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
@@ -383,6 +497,48 @@ function renderDashboard({ todayYield, orderCount, aov, bumpRate, recentSales, a
     line-height:1.3;
   }
   .kpi-accent .kpi-val{ color:var(--green); }
+  .kpi-blue .kpi-val{ color:var(--blue); }
+
+  /* ── 30-DAY BAND ─────────────────────────────────────── */
+  .band-30{
+    margin:16px 20px 0;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:14px 16px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+  }
+  .band-30-label{
+    font-size:.65rem;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    color:var(--muted);
+  }
+  .band-30-stats{
+    display:flex;
+    gap:20px;
+    align-items:center;
+  }
+  .band-stat{
+    text-align:right;
+  }
+  .band-stat-val{
+    font-size:1.05rem;
+    font-weight:800;
+    color:var(--blue);
+    letter-spacing:-.02em;
+  }
+  .band-stat-lbl{
+    font-size:.6rem;
+    color:var(--dim);
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+  }
 
   /* ── SECTION HEADING ─────────────────────────────────── */
   .section-head{
@@ -538,7 +694,7 @@ function renderDashboard({ todayYield, orderCount, aov, bumpRate, recentSales, a
   <div class="hero-block">
     <div class="hero-label">Today's Yield</div>
     <div class="hero-value">$${fmt(todayYield)}</div>
-    <div class="hero-sub">${orderCount} completed order${orderCount !== 1 ? 's' : ''} captured</div>
+    <div class="hero-sub">${todayOrderCount} completed order${todayOrderCount !== 1 ? 's' : ''} captured</div>
   </div>
 
   <!-- KPI GRID -->
@@ -552,14 +708,29 @@ function renderDashboard({ todayYield, orderCount, aov, bumpRate, recentSales, a
       <div class="kpi-lbl">Bump Attach Rate</div>
     </div>
     <div class="kpi">
-      <div class="kpi-val">${orderCount}</div>
+      <div class="kpi-val">${todayOrderCount}</div>
       <div class="kpi-lbl">Orders Today</div>
+    </div>
+  </div>
+
+  <!-- 30-DAY BAND -->
+  <div class="band-30">
+    <div class="band-30-label">30-Day<br>Total</div>
+    <div class="band-30-stats">
+      <div class="band-stat">
+        <div class="band-stat-val">$${fmt(thirtyDayYield)}</div>
+        <div class="band-stat-lbl">Revenue</div>
+      </div>
+      <div class="band-stat">
+        <div class="band-stat-val">${thirtyDayOrders}</div>
+        <div class="band-stat-lbl">Orders</div>
+      </div>
     </div>
   </div>
 
   <!-- RECENT SALES -->
   <div class="section-head">
-    <div class="section-title">Recent Sales</div>
+    <div class="section-title">Recent Sales (Today)</div>
     <div class="section-badge">${recentSales.length} shown</div>
   </div>
 
@@ -600,49 +771,24 @@ export default async function handler(req, res) {
   try {
     const token = await getPayPalToken();
 
-    // Fetch today's transactions (UTC day boundary).
-    const now      = new Date();
-    const todayUTC = now.toISOString().split('T')[0];
-    const startISO = `${todayUTC}T00:00:00.000Z`;
-    const endISO   = now.toISOString(); // up to right now
+    // Fetch the full 30-day window from PayPal (avoids "start date not available" error).
+    // Today's metrics are derived by filtering in Node.js memory below.
+    const transactions = await fetchPayPalTransactions(token);
 
-    const transactions = await fetchPayPalTransactions(token, startISO, endISO);
+    // Determine today's UTC date string once so all filtering is consistent.
+    const now      = new Date();
+    const todayUTC = utcDateStr(now);
 
     // ── AGGREGATE METRICS ──────────────────────────────────────────────────
-    let todayYield   = 0;
-    let bumpCount    = 0;
-    const recentSales = [];
-
-    for (const tx of transactions) {
-      const info  = tx.transaction_info || {};
-      const payer = tx.payer_info       || {};
-
-      // Only count debit transactions (T = debit for buyer, credit for merchant)
-      // PayPal transaction_event_code T0006 = Express Checkout, T0001 = web payments etc.
-      const amount = parseFloat(info.transaction_amount?.value || '0');
-      if (amount <= 0) continue;
-
-      todayYield += amount;
-
-      const items = resolveItems(amount);
-      const hasBump = amount > 27;
-      if (hasBump) bumpCount++;
-
-      recentSales.push({
-        amount,
-        items,
-        geo:  safeGeo(payer),
-        time: info.transaction_initiation_date || now.toISOString(),
-      });
-    }
-
-    const orderCount = recentSales.length;
-    const aov        = orderCount > 0 ? todayYield / orderCount : 0;
-    const bumpRate   = orderCount > 0 ? bumpCount / orderCount : 0;
-
-    // Sort chronologically descending (newest first) and cap at 30 rows.
-    recentSales.sort((a, b) => new Date(b.time) - new Date(a.time));
-    const displaySales = recentSales.slice(0, 30);
+    const {
+      todayYield,
+      todayOrderCount,
+      thirtyDayYield,
+      thirtyDayOrders,
+      aov,
+      bumpRate,
+      recentSales,
+    } = aggregateMetrics(transactions, todayUTC);
 
     // Friendly timestamp for "as of" header.
     const asOf = now.toLocaleTimeString('en-US', {
@@ -654,10 +800,12 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     return res.status(200).send(renderDashboard({
       todayYield,
-      orderCount,
+      todayOrderCount,
+      thirtyDayYield,
+      thirtyDayOrders,
       aov,
       bumpRate,
-      recentSales: displaySales,
+      recentSales,
       asOf,
     }));
 
@@ -669,7 +817,7 @@ export default async function handler(req, res) {
     // browser during diagnostics — avoids needing to open Vercel logs for basic triage.
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     return res.status(503).json({
-      error: true,
+      error:   true,
       message: 'Could not reach PayPal',
       details: err.message,
     });
