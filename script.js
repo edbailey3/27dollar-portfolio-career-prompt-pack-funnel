@@ -1,3 +1,58 @@
+// ---------- DETERMINISTIC CLIENT-SIDE EVENT ID GENERATOR & META CAPI SINGLE SOURCE OF TRUTH ----------
+const createEventId = (type) => `${type}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+function getCookie(name) {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]*)'));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+const getFbp = () => getCookie('_fbp');
+const getFbc = () => getCookie('_fbc');
+
+function sendCAPIEvent(eventName, eventId, customData = {}, email = '') {
+  try {
+    const payload = {
+      eventName: eventName,
+      eventId: eventId,
+      email: email,
+      fbp: getFbp(),
+      fbc: getFbc(),
+      eventSourceUrl: typeof window !== 'undefined' ? window.location.href : '',
+      customData: customData
+    };
+
+    fetch('/api/capi', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(function(err) {
+      console.warn('Meta CAPI client dispatch failed (non-fatal):', err);
+    });
+  } catch (err) {
+    console.warn('sendCAPIEvent error:', err);
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.createEventId = createEventId;
+  window.getFbp = getFbp;
+  window.getFbc = getFbc;
+  window.sendCAPIEvent = sendCAPIEvent;
+}
+
+// Synchronized PageView Meta Pixel & CAPI tracking
+(function trackPageView() {
+  if (typeof window === 'undefined') return;
+  const currentEventId = createEventId('pv');
+
+  if (typeof fbq === 'function') {
+    fbq('track', 'PageView', {}, { eventID: currentEventId });
+  }
+  sendCAPIEvent('PageView', currentEventId);
+})();
+
+
 // ---------- ATTRIBUTION PARAMETER PERSISTENCE & FORWARDING ----------
 (function captureAndPersistAttributionParams() {
   if (typeof window === 'undefined') return;
@@ -176,17 +231,20 @@ function acceptUpsell(){
   if (isUpsellProcessed) return;
   isUpsellProcessed = true;
 
-  var upsellOrderId = 'upsell_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11);
+  var upsellOrderId = createEventId('pur_upsell');
   var upsellValue = 47.00;
+  var upsellCustomData = {
+    currency: 'USD',
+    value: upsellValue,
+    content_name: 'Spider-Web Brain Notion OS',
+    content_ids: ['spiderweb-brain-notion-os'],
+    content_type: 'product'
+  };
 
   if (typeof fbq === 'function') {
-    fbq('track', 'Purchase', {
-      value: upsellValue,
-      currency: 'USD',
-      content_name: 'Spider-Web Brain Notion OS',
-      content_type: 'product'
-    }, { eventID: upsellOrderId });
+    fbq('track', 'Purchase', upsellCustomData, { eventID: upsellOrderId });
   }
+  sendCAPIEvent('Purchase', upsellOrderId, upsellCustomData);
 
   window.dataLayer = window.dataLayer || [];
   window.dataLayer.push({
@@ -261,6 +319,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
       if (errorEl) errorEl.style.display = 'none';
 
+      // Synchronized InitiateCheckout Meta Pixel & CAPI firing with 1:1 deterministic eventID
+      var icEventId = createEventId('ic');
+      var icValue = currentTotalAmount || 27.00;
+      var icCustomData = {
+        currency: 'USD',
+        value: icValue,
+        content_name: 'Portfolio Career School Offer',
+        content_ids: ['pcs-prompt-pack'],
+        content_type: 'product'
+      };
+
+      if (typeof fbq === 'function') {
+        fbq('track', 'InitiateCheckout', icCustomData, { eventID: icEventId });
+      }
+      sendCAPIEvent('InitiateCheckout', icEventId, icCustomData, emailInput);
+
       return fetch('/api/checkout-initiated', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -334,20 +408,24 @@ document.addEventListener('DOMContentLoaded', function() {
         // 3. SUCCESS path
         if (details.status === 'COMPLETED') {
           var capturedValue = details.value || currentTotalAmount || 27.00;
+          var purEventId = data.orderID || createEventId('pur');
+          var purCustomData = {
+            currency: 'USD',
+            value: capturedValue,
+            content_name: 'Portfolio Career School Offer',
+            content_ids: ['pcs-prompt-pack'],
+            content_type: 'product'
+          };
 
           if (typeof fbq === 'function') {
-            fbq('track', 'Purchase', {
-              value: capturedValue,
-              currency: 'USD',
-              content_name: 'Portfolio Career School Offer',
-              content_type: 'product'
-            }, { eventID: data.orderID });
+            fbq('track', 'Purchase', purCustomData, { eventID: purEventId });
           }
+          sendCAPIEvent('Purchase', purEventId, purCustomData, customerEmail);
 
           window.dataLayer = window.dataLayer || [];
           window.dataLayer.push({
             'event': 'purchase_funnel_completed',
-            'transactionId': data.orderID,
+            'transactionId': purEventId,
             'value': capturedValue,
             'currency': 'USD'
           });
