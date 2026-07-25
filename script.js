@@ -232,14 +232,6 @@ function initPreCheckoutLeadCapture(){
       }).catch(function(err){
         console.warn('Pre-checkout lead sync failed (non-fatal):', err);
       });
-
-      fetch('/api/draft-checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email })
-      }).catch(function(err){
-        console.warn('Draft checkout background sync failed:', err);
-      });
     }
   }
 
