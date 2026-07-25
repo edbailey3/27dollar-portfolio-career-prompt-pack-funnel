@@ -205,13 +205,32 @@ if(document.getElementById('total-amount')){
   updateTotal();
 }
 
-// ---------- CHECKOUT PAGE: background draft checkout sync ----------
+// ---------- CHECKOUT PAGE: pre-checkout email capture & Kit lead sync ----------
 var buyerEmailInput = document.getElementById('customer-email');
 if(buyerEmailInput){
-  buyerEmailInput.addEventListener('blur', function(){
+  function handlePreCheckoutLead(){
     var email = buyerEmailInput.value.trim().toLowerCase();
     var emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if(emailRegex.test(email)){
+    if(!emailRegex.test(email)) return;
+
+    var isSent = false;
+    try {
+      isSent = sessionStorage.getItem('pcs_lead_sent') === 'true';
+    } catch(e) { /* storage disabled */ }
+
+    if(!isSent){
+      try {
+        sessionStorage.setItem('pcs_lead_sent', 'true');
+      } catch(e) { /* storage disabled */ }
+
+      fetch('/api/checkout-lead', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email })
+      }).catch(function(err){
+        console.warn('Pre-checkout lead sync failed (non-fatal):', err);
+      });
+
       fetch('/api/draft-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -220,8 +239,12 @@ if(buyerEmailInput){
         console.warn('Draft checkout background sync failed:', err);
       });
     }
-  });
+  }
+
+  buyerEmailInput.addEventListener('blur', handlePreCheckoutLead);
+  buyerEmailInput.addEventListener('change', handlePreCheckoutLead);
 }
+
 
 
 // ---------- UPSELL PAGE: accept / decline ----------
