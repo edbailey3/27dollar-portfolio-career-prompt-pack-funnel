@@ -24,28 +24,59 @@
  *   The full 30-day transaction payload is serialised into window.allTransactions.
  *   Two pill-button toggle bars let the operator switch between:
  *     - Timeframe: Today (PT) | Yesterday (PT) | Last 7 Days (PT) | 30 Days
- *     - Category:  Funnel Sales (≤ $100) | Entire PayPal Account
+ *     - Category:  🎯 Prompt Pack Funnel (≤ $105) | 💼 Entire Account
  *   All metrics (revenue, orders, AOV, bump rate, feed) are re-calculated and
  *   re-rendered in the browser on each toggle tap — no page reload required.
  */
 
 import crypto from 'crypto';
 
-// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+// ─── CONSTANTS & CONFIG ───────────────────────────────────────────────────────
 
 const _mode = (process.env.PAYPAL_MODE || process.env.PAYPAL_ENVIRONMENT || '').toLowerCase();
 const PAYPAL_BASE = _mode === 'sandbox'
   ? 'https://api-m.sandbox.paypal.com'
   : 'https://api-m.paypal.com';
 
-// Product catalogue — used to derive item labels from captured amounts.
-const PRODUCTS = {
-  BASE:      { label: 'Prompt Pack ($27)',          price: 27 },
-  BUMP_CL:   { label: '+ Career Checklist ($17)',   price: 17 },
-  BUMP_CALC: { label: '+ Pricing Calculator ($12)', price: 12 },
-};
+// ─── SERVER-SIDE HELPERS & SKU RESOLUTION ─────────────────────────────────────
 
-// ─── SERVER-SIDE DATE HELPERS ─────────────────────────────────────────────────
+function fmtUSD(n) {
+  return Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function resolveItems(amountUSD) {
+  const cents = Math.round(amountUSD * 100);
+
+  if (cents === 2700) {
+    return ['Portfolio Career Prompt Pack ($27)'];
+  }
+  if (cents === 3900) {
+    return ['Prompt Pack + Pricing Calculator ($39)'];
+  }
+  if (cents === 4400) {
+    return ['Prompt Pack + Career Reset Checklist ($44)'];
+  }
+  if (cents === 5600) {
+    return ['Prompt Pack + Both Order Bumps ($56)'];
+  }
+  if ([4700, 7400, 8600, 9100, 10300].includes(cents)) {
+    return ['Prompt Pack + Notion OS Upsell'];
+  }
+  if (amountUSD < 0) {
+    return [`Expense / Outgoing Payout (-$${fmtUSD(amountUSD)})`];
+  }
+  if (amountUSD >= 150) {
+    return [`Client Retainer / Advisory Revenue ($${fmtUSD(amountUSD)})`];
+  }
+  if (amountUSD > 0 && amountUSD <= 105) {
+    return [`Funnel Sale ($${fmtUSD(amountUSD)})`];
+  }
+  if (amountUSD > 0) {
+    return [`PayPal Payment ($${fmtUSD(amountUSD)})`];
+  }
+
+  return ['PayPal Transaction'];
+}
 
 /**
  * Format a Date as a clean ISO-8601 string WITHOUT milliseconds.
@@ -153,18 +184,6 @@ async function fetchPayPalTransactions(token) {
 
 // ─── DATA HELPERS ─────────────────────────────────────────────────────────────
 
-function resolveItems(amountUSD) {
-  const amt   = Math.round(amountUSD * 100);
-  const items = [PRODUCTS.BASE.label];
-  if (amt === 4400) items.push(PRODUCTS.BUMP_CL.label);
-  if (amt === 3900) items.push(PRODUCTS.BUMP_CALC.label);
-  if (amt === 5600) {
-    items.push(PRODUCTS.BUMP_CL.label);
-    items.push(PRODUCTS.BUMP_CALC.label);
-  }
-  return items;
-}
-
 function safeGeo(payerInfo) {
   try {
     const addr    = payerInfo?.address || {};
@@ -179,9 +198,8 @@ function safeGeo(payerInfo) {
 }
 
 /**
- * Convert the raw PayPal transaction_details array into a lean, sanitised
- * payload safe for embedding in window.allTransactions.
- * Only status=S (Success) transactions with a positive amount are included.
+ * Convert raw PayPal transaction_details array into a lean, sanitised payload.
+ * Status=S (Success) transactions are included (both credits and debits).
  */
 function buildTransactionPayload(transactions) {
   const payload = [];
@@ -189,8 +207,9 @@ function buildTransactionPayload(transactions) {
     const info  = tx.transaction_info || {};
     const payer = tx.payer_info       || {};
 
-    const amount = parseFloat(info.transaction_amount?.value || '0');
-    if (amount <= 0) continue;
+    const amountStr = info.transaction_amount?.value || '0';
+    const amount    = parseFloat(amountStr);
+    if (!amount || amount === 0 || isNaN(amount)) continue;
 
     const status = (info.transaction_status || '').toUpperCase();
     if (status !== 'S') continue;
@@ -465,9 +484,11 @@ function renderDashboard(txPayloadJSON, asOf) {
   }
   .sale-row:hover{ border-color:var(--dim); }
   .sale-amount{
-    font-size:1.05rem;font-weight:800;color:var(--green);
+    font-size:1.05rem;font-weight:800;
     letter-spacing:-.02em;white-space:nowrap;flex-shrink:0;
   }
+  .sale-amount.credit{ color:var(--green); }
+  .sale-amount.debit{ color:#ff5555; }
   .sale-meta{ flex:1;min-width:0; }
   .sale-items{
     font-size:.78rem;font-weight:600;color:var(--text);
@@ -533,7 +554,7 @@ function renderDashboard(txPayloadJSON, asOf) {
     <!-- TOGGLE: CATEGORY -->
     <div class="toggle-label">📂 Revenue Category</div>
     <div class="pill-bar cat" id="bar-cat">
-      <button class="pill active" data-cat="funnel">🎯 Funnel Sales</button>
+      <button class="pill active" data-cat="funnel">🎯 Prompt Pack Funnel</button>
       <button class="pill" data-cat="account">💼 Entire Account</button>
     </div>
   </div>
@@ -561,7 +582,7 @@ function renderDashboard(txPayloadJSON, asOf) {
     </div>
   </div>
 
-  <!-- 30-DAY BAND (always shows 30-day baseline for selected category) -->
+  <!-- 30-DAY BAND (reference baseline) -->
   <div class="band-30">
     <div class="band-30-label">30-Day<br>Baseline</div>
     <div class="band-30-stats">
@@ -629,9 +650,31 @@ function todayPT() {
 
 /** Pacific Time date exactly N calendar days before today, YYYY-MM-DD. */
 function nDaysAgoPT(n) {
-  return new Date(Date.now() - n * 86400000).toLocaleDateString('en-CA', {
-    timeZone: 'America/Los_Angeles'
-  });
+  var todayStr = todayPT();
+  var parts = todayStr.split('-').map(Number);
+  var dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+  dt.setUTCDate(dt.getUTCDate() - n);
+  return dt.toISOString().split('T')[0];
+}
+
+/** Format feed timestamp to display Month, Day, and Time in PT: e.g. "Jul 24, 3:15 AM PT" */
+function fmtDateTimePT(iso) {
+  if (!iso) return '';
+  try {
+    var d = new Date(iso);
+    var dateStr = d.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      timeZone: 'America/Los_Angeles'
+    });
+    var timeStr = d.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'America/Los_Angeles'
+    });
+    return dateStr + ', ' + timeStr + ' PT';
+  } catch(e) { return iso; }
 }
 
 // ─── FILTERS ──────────────────────────────────────────────────────────────────
@@ -646,40 +689,53 @@ function filterTimeframe(txs, tf) {
     return txs.filter(function(t) { return ptDateStr(t.initiationDate) === yest; });
   }
   if (tf === '7d') {
-    // Rolling 7 calendar days inclusive of today (PT).
-    // nDaysAgoPT(6) = 6 days back; together with today that is 7 days.
     var cutoff = nDaysAgoPT(6);
     return txs.filter(function(t) {
       var d = ptDateStr(t.initiationDate);
       return d && d >= cutoff && d <= today;
     });
   }
-  return txs; // '30d' — full dataset
+  return txs; // '30d'
 }
 
 function filterCategory(txs, cat) {
   if (cat === 'funnel') {
-    // Funnel transactions: $27 base + optional bumps, capped at $100.
-    // Covers: $27, $39 ($27+$12), $44 ($27+$17), $56 ($27+$17+$12) and any
-    // other funnel variant up to $100.
-    return txs.filter(function(t) { return t.amount <= 100; });
+    // Funnel transactions: positive gross amount <= $105
+    return txs.filter(function(t) { return t.amount > 0 && t.amount <= 105; });
   }
-  return txs; // 'account' — all successful payments
+  return txs; // 'account' — all incoming (+) and outgoing (-)
 }
 
 // ─── METRICS ──────────────────────────────────────────────────────────────────
 
 function computeMetrics(txs) {
-  var revenue = 0, orders = 0, bumps = 0;
-  for (var i = 0; i < txs.length; i++) {
-    revenue += txs[i].amount;
-    orders++;
-    if (txs[i].amount > 27.00) bumps++;
-  }
-  var aov      = orders > 0 ? revenue / orders : 0;
-  var bumpRate = orders > 0 ? bumps  / orders : 0;
+  var revenue = 0;
+  var positiveRevenue = 0;
+  var positiveOrders = 0;
 
-  // Sort newest-first, cap feed at 30 rows.
+  for (var i = 0; i < txs.length; i++) {
+    var amt = txs[i].amount;
+    revenue += amt;
+    if (amt > 0) {
+      positiveRevenue += amt;
+      positiveOrders++;
+    }
+  }
+
+  var orders = positiveOrders;
+  var aov = orders > 0 ? positiveRevenue / orders : 0;
+
+  // Bump Attach Rate aggregates positive MONEY IN matching funnel ceiling (gross <= 105)
+  var funnelTxs = txs.filter(function(t) { return t.amount > 0 && t.amount <= 105; });
+  var funnelOrders = funnelTxs.length;
+  var bumps = 0;
+  for (var j = 0; j < funnelTxs.length; j++) {
+    if (funnelTxs[j].amount > 27.00) {
+      bumps++;
+    }
+  }
+  var bumpRate = funnelOrders > 0 ? bumps / funnelOrders : 0;
+
   var feed = txs.slice().sort(function(a, b) {
     var da = a.initiationDate ? new Date(a.initiationDate).getTime() : 0;
     var db = b.initiationDate ? new Date(b.initiationDate).getTime() : 0;
@@ -692,18 +748,9 @@ function computeMetrics(txs) {
 // ─── FORMAT ───────────────────────────────────────────────────────────────────
 
 function fmtUSD(n) {
-  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function fmtPct(n) { return (n * 100).toFixed(1) + '%'; }
-function fmtTimePT(iso) {
-  if (!iso) return '';
-  try {
-    return new Date(iso).toLocaleTimeString('en-US', {
-      hour: 'numeric', minute: '2-digit', hour12: true,
-      timeZone: 'America/Los_Angeles'
-    }) + ' PT';
-  } catch(e) { return iso; }
-}
 
 // ─── LABELS ───────────────────────────────────────────────────────────────────
 
@@ -723,20 +770,42 @@ var TF_SECTION = {
 // ─── DOM RENDER ───────────────────────────────────────────────────────────────
 
 function buildSaleRow(tx, idx) {
+  var isCredit = tx.amount > 0;
+  var amtClass = isCredit ? 'sale-amount credit' : 'sale-amount debit';
+  var amtFormatted = isCredit
+    ? '+$' + fmtUSD(tx.amount)
+    : '-$' + fmtUSD(Math.abs(tx.amount));
+
   return '<div class="sale-row" style="animation-delay:' + (idx * 45) + 'ms">' +
-    '<div class="sale-amount">$' + fmtUSD(tx.amount) + '</div>' +
+    '<div class="' + amtClass + '">' + amtFormatted + '</div>' +
     '<div class="sale-meta">' +
       '<div class="sale-items">' + (tx.items || []).join(' · ') + '</div>' +
-      '<div class="sale-sub">' + (tx.geo || 'Unknown') + ' &nbsp;·&nbsp; ' + fmtTimePT(tx.initiationDate) + '</div>' +
+      '<div class="sale-sub">' + (tx.geo || 'Unknown') + ' &nbsp;·&nbsp; ' + fmtDateTimePT(tx.initiationDate) + '</div>' +
     '</div>' +
   '</div>';
 }
 
 function updateDOM(m, tf, cat) {
   // Hero
-  document.getElementById('hero-label').textContent = TF_HERO[tf] || 'Yield';
-  document.getElementById('hero-value').textContent = '$' + fmtUSD(m.revenue);
-  document.getElementById('hero-sub').textContent =
+  var heroLabelEl = document.getElementById('hero-label');
+  var heroValueEl = document.getElementById('hero-value');
+  var heroSubEl   = document.getElementById('hero-sub');
+
+  heroLabelEl.textContent = TF_HERO[tf] || 'Yield';
+
+  if (m.revenue < 0) {
+    heroValueEl.textContent = '-$' + fmtUSD(Math.abs(m.revenue));
+    heroValueEl.style.background = 'none';
+    heroValueEl.style.webkitTextFillColor = '#ff5555';
+    heroValueEl.style.color = '#ff5555';
+  } else {
+    heroValueEl.textContent = '$' + fmtUSD(m.revenue);
+    heroValueEl.style.background = 'linear-gradient(135deg,#ff6b35 0%,#e73d00 50%,#c22800 100%)';
+    heroValueEl.style.webkitBackgroundClip = 'text';
+    heroValueEl.style.webkitTextFillColor = 'transparent';
+  }
+
+  heroSubEl.textContent =
     m.orders + ' completed order' + (m.orders !== 1 ? 's' : '') + ' captured';
 
   // KPIs
@@ -744,9 +813,9 @@ function updateDOM(m, tf, cat) {
   document.getElementById('kpi-bump').textContent   = fmtPct(m.bumpRate);
   document.getElementById('kpi-orders').textContent = m.orders;
 
-  // 30-day band — always shows 30-day totals for the selected category (baseline reference).
+  // 30-day baseline
   var base30 = computeMetrics(filterCategory(window.allTransactions, cat));
-  document.getElementById('band-revenue').textContent = '$' + fmtUSD(base30.revenue);
+  document.getElementById('band-revenue').textContent = (base30.revenue < 0 ? '-$' : '$') + fmtUSD(Math.abs(base30.revenue));
   document.getElementById('band-orders').textContent  = base30.orders;
 
   // Sales feed
@@ -757,8 +826,6 @@ function updateDOM(m, tf, cat) {
     ? m.feed.map(buildSaleRow).join('')
     : '<div class="no-sales">No completed transactions for this period.</div>';
 }
-
-// ─── RECALC ───────────────────────────────────────────────────────────────────
 
 function recalculate() {
   var filtered = filterCategory(
@@ -817,7 +884,7 @@ export default async function handler(req, res) {
     const rawTxs       = await fetchPayPalTransactions(token);
     const payload      = buildTransactionPayload(rawTxs);
 
-    // Safely embed the payload — guard against </script> injection in PayPal data.
+    // Safely embed payload — guard against </script> injection in PayPal data.
     const txPayloadJSON = JSON.stringify(payload)
       .replace(/<\/script>/gi, '<\\/script>');
 
