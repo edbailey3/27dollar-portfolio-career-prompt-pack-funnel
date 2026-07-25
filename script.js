@@ -206,8 +206,10 @@ if(document.getElementById('total-amount')){
 }
 
 // ---------- CHECKOUT PAGE: pre-checkout email capture & Kit lead sync ----------
-var buyerEmailInput = document.getElementById('customer-email');
-if(buyerEmailInput){
+function initPreCheckoutLeadCapture(){
+  var buyerEmailInput = document.getElementById('customer-email');
+  if(!buyerEmailInput) return;
+
   function handlePreCheckoutLead(){
     var email = buyerEmailInput.value.trim().toLowerCase();
     var emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -244,6 +246,13 @@ if(buyerEmailInput){
   buyerEmailInput.addEventListener('blur', handlePreCheckoutLead);
   buyerEmailInput.addEventListener('change', handlePreCheckoutLead);
 }
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initPreCheckoutLeadCapture);
+} else {
+  initPreCheckoutLeadCapture();
+}
+
 
 
 
