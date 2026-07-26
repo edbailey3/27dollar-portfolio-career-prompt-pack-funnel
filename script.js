@@ -165,8 +165,9 @@ if (typeof window !== 'undefined') {
 // Synchronized PageView & ViewContent Meta/TikTok Pixel & Dual CAPI tracking
 (function trackPageViewAndContent() {
   if (typeof window === 'undefined') return;
+  const sanitizeId = (id) => String(id || '').replace(/['"]/g, '').trim();
   const currentEventId = createEventId('pv');
-  const extId = getOrCreateExternalId();
+  const extId = sanitizeId(getOrCreateExternalId());
 
   const path = window.location.pathname;
   const isCheckoutPage = path.endsWith('/checkout.html') || path === '/checkout';
@@ -215,7 +216,7 @@ if (typeof window !== 'undefined') {
   // 2. Meta Pixel PageView (Isolated Try/Catch)
   try {
     if (typeof fbq === 'function') {
-      if (extId) fbq('set', 'userData', { external_id: extId });
+      if (extId) fbq('set', 'userData', { external_id: sanitizeId(extId) });
       fbq('track', 'PageView', {}, { eventID: currentEventId });
     }
   } catch(err) {
