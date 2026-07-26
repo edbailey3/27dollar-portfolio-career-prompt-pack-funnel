@@ -70,7 +70,7 @@ async function hashAndPersistEmail(email) {
       localStorage.setItem('pcs_external_id', hashed);
     } catch (e) { /* storage disabled */ }
     if (typeof fbq === 'function') {
-      fbq('set', 'userData', { external_id: hashed, em: hashed });
+      fbq('init', '2772807839768527', { external_id: hashed, em: hashed });
     }
     return hashed;
   }
@@ -216,7 +216,7 @@ if (typeof window !== 'undefined') {
   // 2. Meta Pixel PageView (Isolated Try/Catch)
   try {
     if (typeof fbq === 'function') {
-      if (extId) fbq('set', 'userData', { external_id: sanitizeId(extId) });
+      if (extId) fbq('init', '2772807839768527', { external_id: sanitizeId(extId) });
       fbq('track', 'PageView', {}, { eventID: currentEventId });
     }
   } catch(err) {
