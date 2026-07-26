@@ -1,3 +1,9 @@
+// ---------- GLOBAL GTAG SAFETY FALLBACK ----------
+if (typeof window !== 'undefined') {
+  window.dataLayer = window.dataLayer || [];
+  window.gtag = window.gtag || function(){ window.dataLayer.push(arguments); };
+}
+
 // ---------- DETERMINISTIC CLIENT-SIDE EVENT ID GENERATOR & DUAL TELEMETRY S2S SINGLE SOURCE OF TRUTH ----------
 const createEventId = (type) => `${type}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
@@ -185,6 +191,14 @@ if (typeof window !== 'undefined') {
       });
     }
     sendCAPIEvent('ViewContent', vcEventId, vcData);
+  }
+
+  // GA4 begin_checkout on checkout page load
+  const isCheckoutPage = path.endsWith('/checkout.html') || path === '/checkout';
+  if (isCheckoutPage) {
+    if (typeof gtag === 'function') {
+      gtag('event', 'begin_checkout', getGA4CartPayload());
+    }
   }
 
   // GA4 view_item on upsell page load
@@ -390,9 +404,6 @@ function initPreCheckoutLeadCapture(){
       }
       if (typeof ttq === 'object' && typeof ttq.track === 'function') {
         ttq.track('InitiateCheckout', { value: 27.00, currency: 'USD', content_id: 'pcs_prompt_pack' }, { event_id: icLeadEventId });
-      }
-      if (typeof gtag === 'function') {
-        gtag('event', 'begin_checkout', getGA4CartPayload());
       }
       sendCAPIEvent('InitiateCheckout', icLeadEventId, icLeadData, email);
     }
