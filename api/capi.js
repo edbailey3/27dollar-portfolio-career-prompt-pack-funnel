@@ -22,6 +22,7 @@ export default async function handler(req, res) {
       eventName,
       eventId,
       email,
+      externalId,
       fbp,
       fbc,
       eventSourceUrl,
@@ -36,6 +37,8 @@ export default async function handler(req, res) {
     const hashedEmail = email && typeof email === 'string' && email.trim() !== ''
       ? crypto.createHash('sha256').update(email.toLowerCase().trim()).digest('hex')
       : null;
+
+    const resolvedExternalId = externalId || req.body?.external_id || hashedEmail || null;
 
     // Extract client IP and User-Agent directly
     const rawIp = req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress || '';
@@ -55,6 +58,7 @@ export default async function handler(req, res) {
             client_user_agent: userAgent,
             fbp: fbp || null,
             fbc: fbc || null,
+            ...(resolvedExternalId ? { external_id: resolvedExternalId } : {}),
             ...(hashedEmail ? { em: [hashedEmail] } : {})
           },
           custom_data: customData || {

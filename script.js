@@ -10,12 +10,58 @@ function getCookie(name) {
 const getFbp = () => getCookie('_fbp');
 const getFbc = () => getCookie('_fbc');
 
+function getOrCreateExternalId() {
+  if (typeof window === 'undefined') return null;
+  try {
+    let extId = localStorage.getItem('pcs_external_id');
+    if (!extId) {
+      extId = 'ext_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11);
+      localStorage.setItem('pcs_external_id', extId);
+    }
+    return extId;
+  } catch (e) {
+    return 'ext_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11);
+  }
+}
+
+async function hashAndPersistEmail(email) {
+  if (!email || typeof email !== 'string') return null;
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanEmail || !cleanEmail.includes('@')) return null;
+
+  try {
+    sessionStorage.setItem('pcs_customer_email', cleanEmail);
+  } catch (e) { /* storage disabled */ }
+
+  let hashed = null;
+  try {
+    if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+      const msgBuffer = new TextEncoder().encode(cleanEmail);
+      const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      hashed = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch (e) { /* subtle crypto unavailable */ }
+
+  if (hashed) {
+    try {
+      localStorage.setItem('pcs_external_id', hashed);
+    } catch (e) { /* storage disabled */ }
+    if (typeof fbq === 'function') {
+      fbq('set', 'userData', { external_id: hashed, em: hashed });
+    }
+    return hashed;
+  }
+  return getOrCreateExternalId();
+}
+
 function sendCAPIEvent(eventName, eventId, customData = {}, email = '') {
   try {
     const payload = {
       eventName: eventName,
       eventId: eventId,
       email: email,
+      externalId: getOrCreateExternalId(),
       fbp: getFbp(),
       fbc: getFbc(),
       eventSourceUrl: typeof window !== 'undefined' ? window.location.href : '',
@@ -38,18 +84,31 @@ if (typeof window !== 'undefined') {
   window.createEventId = createEventId;
   window.getFbp = getFbp;
   window.getFbc = getFbc;
+  window.getOrCreateExternalId = getOrCreateExternalId;
+  window.hashAndPersistEmail = hashAndPersistEmail;
   window.sendCAPIEvent = sendCAPIEvent;
 }
 
-// Synchronized PageView Meta Pixel & CAPI tracking
+// Synchronized PageView Meta Pixel & CAPI tracking with external_id alignment
 (function trackPageView() {
   if (typeof window === 'undefined') return;
   const currentEventId = createEventId('pv');
+  const extId = getOrCreateExternalId();
 
   if (typeof fbq === 'function') {
+    if (extId) fbq('set', 'userData', { external_id: extId });
     fbq('track', 'PageView', {}, { eventID: currentEventId });
   }
   sendCAPIEvent('PageView', currentEventId);
+
+  // Auto-capture ?email= URL param if present
+  try {
+    var urlParams = new URLSearchParams(window.location.search);
+    var emailParam = urlParams.get('email');
+    if (emailParam) {
+      hashAndPersistEmail(emailParam);
+    }
+  } catch (e) { /* URLSearchParams unavailable */ }
 })();
 
 
@@ -215,6 +274,8 @@ function initPreCheckoutLeadCapture(){
     var emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if(!emailRegex.test(email)) return;
 
+    hashAndPersistEmail(email);
+
     var isSent = false;
     try {
       isSent = sessionStorage.getItem('pcs_lead_sent') === 'true';
@@ -255,7 +316,14 @@ function acceptUpsell(){
   if (isUpsellProcessed) return;
   isUpsellProcessed = true;
 
-  var upsellOrderId = createEventId('pur_upsell');
+  var baseOrderId = null;
+  var customerEmail = '';
+  try {
+    baseOrderId = sessionStorage.getItem('pcs_base_order_id');
+    customerEmail = sessionStorage.getItem('pcs_customer_email') || '';
+  } catch(e) { /* storage disabled */ }
+
+  var upsellOrderId = baseOrderId ? ('upsell_' + baseOrderId) : createEventId('pur_upsell');
   var upsellValue = 47.00;
   var upsellCustomData = {
     currency: 'USD',
@@ -268,7 +336,7 @@ function acceptUpsell(){
   if (typeof fbq === 'function') {
     fbq('track', 'Purchase', upsellCustomData, { eventID: upsellOrderId });
   }
-  sendCAPIEvent('Purchase', upsellOrderId, upsellCustomData);
+  sendCAPIEvent('Purchase', upsellOrderId, upsellCustomData, customerEmail);
 
   window.dataLayer = window.dataLayer || [];
   window.dataLayer.push({
@@ -391,10 +459,30 @@ document.addEventListener('DOMContentLoaded', function() {
       var emailEl = document.getElementById('customer-email');
       var customerEmail = emailEl ? emailEl.value.trim().toLowerCase() : '';
 
+      // Idempotency check: Guard against double-fires from multi-clicks or duplicate SDK events
+      var isAlreadyProcessed = false;
+      try {
+        isAlreadyProcessed = sessionStorage.getItem('pcs_purchase_processed_' + data.orderID) === 'true';
+      } catch(e) { /* storage disabled */ }
+
+      if (window.isBasePurchaseProcessed || isAlreadyProcessed) {
+        console.warn('Purchase already processed for order:', data.orderID);
+        window.location.href = '/upsell.html';
+        return Promise.resolve();
+      }
+      window.isBasePurchaseProcessed = true;
+      try {
+        sessionStorage.setItem('pcs_purchase_processed_' + data.orderID, 'true');
+        sessionStorage.setItem('pcs_base_order_id', data.orderID);
+        if (customerEmail) sessionStorage.setItem('pcs_customer_email', customerEmail);
+      } catch(e) { /* storage disabled */ }
+
+      hashAndPersistEmail(customerEmail);
+
       return fetch('/api/capture-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderID: data.orderID, email: customerEmail })
+        body: JSON.stringify({ orderID: data.orderID, email: customerEmail, externalId: getOrCreateExternalId() })
       })
       .then(function(res) {
         if (!res.ok) throw new Error('Capture order returned status ' + res.status);
@@ -411,11 +499,13 @@ document.addEventListener('DOMContentLoaded', function() {
         // 1. Handle Card / Bank Declines
         var errorDetail = details.details ? details.details[0] : null;
         if (errorDetail && errorDetail.issue === 'INSTRUMENT_DECLINED') {
+          window.isBasePurchaseProcessed = false;
           return actions.restart();
         }
 
         // 2. Handle Other Errors
         if (details.error || errorDetail) {
+          window.isBasePurchaseProcessed = false;
           alert('Payment could not be processed. Please try a different payment method.');
           return;
         }
@@ -432,10 +522,10 @@ document.addEventListener('DOMContentLoaded', function() {
             content_type: 'product'
           };
 
+          // Client Browser Meta Pixel tracking (Server Meta & TikTok CAPI are dispatched securely by /api/capture-order.js)
           if (typeof fbq === 'function') {
             fbq('track', 'Purchase', purCustomData, { eventID: purEventId });
           }
-          sendCAPIEvent('Purchase', purEventId, purCustomData, customerEmail);
 
           window.dataLayer = window.dataLayer || [];
           window.dataLayer.push({
@@ -449,6 +539,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
       })
       .catch(function(err) {
+        window.isBasePurchaseProcessed = false;
         console.error('onApprove capture error:', err);
         alert('We received your payment but had trouble verifying it. Please contact support with your PayPal receipt.');
       });

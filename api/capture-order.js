@@ -77,13 +77,13 @@ export async function sendTikTokEvent(email, orderId, capturedValue, req) {
 
 /**
  * Helper utility to send Server-to-Server (S2S) tracking event to Meta Conversions API (v19.0).
- *
  * @param {string} email - Customer email address
  * @param {string} orderId - Order identifier (e.g. PayPal Order ID for deduplication)
  * @param {number} capturedValue - Exact numerical value of settled transaction
  * @param {import('http').IncomingMessage} req - The incoming HTTP request object
+ * @param {string} [externalId] - Persistent external identifier
  */
-export async function sendMetaCAPIEvent(email, orderId, capturedValue, req) {
+export async function sendMetaCAPIEvent(email, orderId, capturedValue, req, externalId) {
   try {
     const pixelId = process.env.META_PIXEL_ID;
     const accessToken = process.env.META_ACCESS_TOKEN;
@@ -94,6 +94,7 @@ export async function sendMetaCAPIEvent(email, orderId, capturedValue, req) {
     }
 
     const hashedEmail = crypto.createHash('sha256').update(email.toLowerCase().trim()).digest('hex');
+    const resolvedExternalId = externalId || hashedEmail;
 
     const rawIp = req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress || '';
     const clientIp = (typeof rawIp === 'string' ? rawIp : '').split(',')[0].trim();
@@ -118,6 +119,7 @@ export async function sendMetaCAPIEvent(email, orderId, capturedValue, req) {
           event_source_url: (process.env.SITE_URL || 'https://portfoliocareerschool.com') + '/checkout.html',
           user_data: {
             em: [hashedEmail],
+            external_id: resolvedExternalId,
             client_ip_address: clientIp,
             client_user_agent: userAgent,
             fbp: fbpCookie || null,
@@ -156,7 +158,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { orderID, email } = req.body || {};
+    const { orderID, email, externalId } = req.body || {};
 
     if (!orderID || !email) {
       return res.status(400).json({ error: 'Order verification fields are missing.' });
@@ -254,7 +256,7 @@ export default async function handler(req, res) {
       console.error('Background sendTikTokEvent error:', err);
     });
 
-    sendMetaCAPIEvent(email, orderID, capturedValue, req).catch(err => {
+    sendMetaCAPIEvent(email, orderID, capturedValue, req, externalId).catch(err => {
       console.error('Background sendMetaCAPIEvent error:', err);
     });
 
