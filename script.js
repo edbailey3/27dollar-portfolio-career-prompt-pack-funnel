@@ -14,7 +14,18 @@ function getCookie(name) {
 }
 
 const getFbp = () => getCookie('_fbp');
-const getFbc = () => getCookie('_fbc');
+function getFbc() {
+  const cookieFbc = getCookie('_fbc');
+  if (cookieFbc) return cookieFbc;
+  try {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const fbclid = urlParams.get('fbclid') || sessionStorage.getItem('attr_fbclid');
+      if (fbclid) return `fb.1.${Date.now()}.${fbclid}`;
+    }
+  } catch (e) { /* storage guarded */ }
+  return null;
+}
 const getTtclid = () => getCookie('ttclid') || getCookie('_ttclid');
 
 function getTestEventCode() {
