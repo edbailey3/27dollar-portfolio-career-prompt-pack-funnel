@@ -104,6 +104,11 @@ function sendCAPIEvent(eventName, eventId, customData = {}, email = '') {
   }
 }
 
+function sanitizePixelId(id) {
+  if (!id) return '';
+  return String(id).replace(/['"]/g, '').trim();
+}
+
 function getGA4CartPayload() {
   var items = [{
     item_id: 'pcs_prompt_pack',
@@ -154,6 +159,7 @@ if (typeof window !== 'undefined') {
   window.hashAndPersistEmail = hashAndPersistEmail;
   window.sendCAPIEvent = sendCAPIEvent;
   window.getGA4CartPayload = getGA4CartPayload;
+  window.sanitizePixelId = sanitizePixelId;
 }
 
 // Synchronized PageView & ViewContent Meta/TikTok Pixel & Dual CAPI tracking
