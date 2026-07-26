@@ -98,6 +98,46 @@ function sendCAPIEvent(eventName, eventId, customData = {}, email = '') {
   }
 }
 
+function getGA4CartPayload() {
+  var items = [{
+    item_id: 'pcs_prompt_pack',
+    item_name: 'Portfolio Career AI Prompt Pack',
+    price: 27.00,
+    quantity: 1
+  }];
+  var value = 27.00;
+
+  if (typeof document !== 'undefined') {
+    var b1 = document.getElementById('bump1-check');
+    if (b1 && b1.checked) {
+      items.push({
+        item_id: 'pcs_bump_reset_checklist',
+        item_name: 'Career Reset Checklist',
+        price: 17.00,
+        quantity: 1
+      });
+      value += 17.00;
+    }
+
+    var b2 = document.getElementById('bump2-check');
+    if (b2 && b2.checked) {
+      items.push({
+        item_id: 'pcs_bump_pricing_calc',
+        item_name: 'Portfolio Career Pricing Calculator',
+        price: 12.00,
+        quantity: 1
+      });
+      value += 12.00;
+    }
+  }
+
+  return {
+    currency: 'USD',
+    value: Number(value.toFixed(2)),
+    items: items
+  };
+}
+
 if (typeof window !== 'undefined') {
   window.createEventId = createEventId;
   window.getFbp = getFbp;
@@ -107,6 +147,7 @@ if (typeof window !== 'undefined') {
   window.getOrCreateExternalId = getOrCreateExternalId;
   window.hashAndPersistEmail = hashAndPersistEmail;
   window.sendCAPIEvent = sendCAPIEvent;
+  window.getGA4CartPayload = getGA4CartPayload;
 }
 
 // Synchronized PageView & ViewContent Meta/TikTok Pixel & Dual CAPI tracking
@@ -136,7 +177,26 @@ if (typeof window !== 'undefined') {
     if (typeof ttq === 'object' && typeof ttq.track === 'function') {
       ttq.track('ViewContent', { content_id: 'pcs_prompt_pack', value: 27.00, currency: 'USD' }, { event_id: vcEventId });
     }
+    if (typeof gtag === 'function') {
+      gtag('event', 'view_item', {
+        currency: 'USD',
+        value: 27.00,
+        items: [{ item_id: 'pcs_prompt_pack', item_name: 'Portfolio Career AI Prompt Pack', price: 27.00, quantity: 1 }]
+      });
+    }
     sendCAPIEvent('ViewContent', vcEventId, vcData);
+  }
+
+  // GA4 view_item on upsell page load
+  const isUpsellPage = path.endsWith('/upsell.html') || path === '/upsell';
+  if (isUpsellPage) {
+    if (typeof gtag === 'function') {
+      gtag('event', 'view_item', {
+        currency: 'USD',
+        value: 47.00,
+        items: [{ item_id: 'spiderweb-brain-notion-os', item_name: 'Spider-Web Brain Notion OS', price: 47.00, quantity: 1 }]
+      });
+    }
   }
 
   // Auto-capture ?email= or ?tt_test_code= URL params if present
@@ -331,6 +391,9 @@ function initPreCheckoutLeadCapture(){
       if (typeof ttq === 'object' && typeof ttq.track === 'function') {
         ttq.track('InitiateCheckout', { value: 27.00, currency: 'USD', content_id: 'pcs_prompt_pack' }, { event_id: icLeadEventId });
       }
+      if (typeof gtag === 'function') {
+        gtag('event', 'begin_checkout', getGA4CartPayload());
+      }
       sendCAPIEvent('InitiateCheckout', icLeadEventId, icLeadData, email);
     }
 
@@ -396,6 +459,14 @@ function acceptUpsell(){
   }
   if (typeof ttq === 'object' && typeof ttq.track === 'function') {
     ttq.track('CompletePayment', { value: upsellValue, currency: 'USD', content_id: 'spiderweb-brain-notion-os' }, { event_id: upsellOrderId });
+  }
+  if (typeof gtag === 'function') {
+    gtag('event', 'purchase', {
+      transaction_id: upsellOrderId,
+      currency: 'USD',
+      value: 47.00,
+      items: [{ item_id: 'spiderweb-brain-notion-os', item_name: 'Spider-Web Brain Notion OS', price: 47.00, quantity: 1 }]
+    });
   }
   sendCAPIEvent('Purchase', upsellOrderId, upsellCustomData, customerEmail);
 
@@ -491,6 +562,9 @@ document.addEventListener('DOMContentLoaded', function() {
       if (typeof ttq === 'object' && typeof ttq.track === 'function') {
         ttq.track('InitiateCheckout', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: icEventId });
         ttq.track('AddPaymentInfo', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: apiEventId });
+      }
+      if (typeof gtag === 'function') {
+        gtag('event', 'add_payment_info', getGA4CartPayload());
       }
       sendCAPIEvent('InitiateCheckout', icEventId, icCustomData, emailInput);
       sendCAPIEvent('AddPaymentInfo', apiEventId, icCustomData, emailInput);
@@ -601,6 +675,15 @@ document.addEventListener('DOMContentLoaded', function() {
           }
           if (typeof ttq === 'object' && typeof ttq.track === 'function') {
             ttq.track('CompletePayment', { value: capturedValue, currency: 'USD', content_id: 'pcs_prompt_pack' }, { event_id: purEventId });
+          }
+          if (typeof gtag === 'function') {
+            var ga4Cart = getGA4CartPayload();
+            gtag('event', 'purchase', {
+              transaction_id: data.orderID,
+              currency: 'USD',
+              value: ga4Cart.value,
+              items: ga4Cart.items
+            });
           }
 
           window.dataLayer = window.dataLayer || [];
