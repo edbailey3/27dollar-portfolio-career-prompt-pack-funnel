@@ -10,8 +10,9 @@ const redis = Redis.fromEnv();
  * @param {string} orderId - Order identifier (e.g. PayPal Order ID for deduplication)
  * @param {number} capturedValue - Exact numerical value of settled transaction
  * @param {import('http').IncomingMessage} req - The incoming HTTP request object
+ * @param {string} [testEventCode] - Optional TikTok/Meta Sandbox Test Event Code
  */
-export async function sendTikTokEvent(email, orderId, capturedValue, req) {
+export async function sendTikTokEvent(email, orderId, capturedValue, req, testEventCode) {
   try {
     const accessToken = process.env.TIKTOK_ACCESS_TOKEN;
     const pixelId = process.env.TIKTOK_PIXEL_ID;
@@ -27,6 +28,13 @@ export async function sendTikTokEvent(email, orderId, capturedValue, req) {
     const clientIp = (typeof rawIp === 'string' ? rawIp : '').split(',')[0].trim();
     const userAgent = req?.headers?.['user-agent'] || '';
 
+    const cookieHeader = req?.headers?.cookie || '';
+    const getCookie = (name) => {
+      const match = cookieHeader.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]*)'));
+      return match ? decodeURIComponent(match[1]) : null;
+    };
+    const ttclidCookie = getCookie('ttclid') || getCookie('_ttclid');
+
     const payload = {
       pixel_code: pixelId,
       event: "CompletePayment",
@@ -34,7 +42,8 @@ export async function sendTikTokEvent(email, orderId, capturedValue, req) {
       timestamp: new Date().toISOString(),
       context: {
         user: {
-          email: hashedEmail
+          email: hashedEmail,
+          ...(ttclidCookie ? { ttclid: ttclidCookie } : {})
         },
         ip: clientIp,
         user_agent: userAgent,
@@ -54,7 +63,8 @@ export async function sendTikTokEvent(email, orderId, capturedValue, req) {
             content_name: "Portfolio Career School Offer"
           }
         ]
-      }
+      },
+      ...(testEventCode ? { test_event_code: testEventCode } : {})
     };
 
     const response = await fetch('https://business-api.tiktok.com/open_api/v1.3/event/track/', {
@@ -82,8 +92,9 @@ export async function sendTikTokEvent(email, orderId, capturedValue, req) {
  * @param {number} capturedValue - Exact numerical value of settled transaction
  * @param {import('http').IncomingMessage} req - The incoming HTTP request object
  * @param {string} [externalId] - Persistent external identifier
+ * @param {string} [testEventCode] - Optional Meta Sandbox Test Event Code
  */
-export async function sendMetaCAPIEvent(email, orderId, capturedValue, req, externalId) {
+export async function sendMetaCAPIEvent(email, orderId, capturedValue, req, externalId, testEventCode) {
   try {
     const pixelId = process.env.META_PIXEL_ID;
     const accessToken = process.env.META_ACCESS_TOKEN;
@@ -133,7 +144,8 @@ export async function sendMetaCAPIEvent(email, orderId, capturedValue, req, exte
             content_type: "product"
           }
         }
-      ]
+      ],
+      ...(testEventCode ? { test_event_code: testEventCode } : {})
     };
 
     const endpoint = `https://graph.facebook.com/v19.0/${pixelId}/events?access_token=${accessToken}`;
@@ -158,7 +170,8 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { orderID, email, externalId } = req.body || {};
+    const { orderID, email, externalId, test_event_code } = req.body || {};
+    const testEventCode = test_event_code || req.query?.test_event_code || req.query?.tt_test_code || req.body?.test_code || null;
 
     if (!orderID || !email) {
       return res.status(400).json({ error: 'Order verification fields are missing.' });
@@ -252,11 +265,11 @@ export default async function handler(req, res) {
     }
 
     // 5. Fire TikTok and Meta Server-to-Server (S2S) tracking asynchronously (non-blocking) with dynamic capturedValue
-    sendTikTokEvent(email, orderID, capturedValue, req).catch(err => {
+    sendTikTokEvent(email, orderID, capturedValue, req, testEventCode).catch(err => {
       console.error('Background sendTikTokEvent error:', err);
     });
 
-    sendMetaCAPIEvent(email, orderID, capturedValue, req, externalId).catch(err => {
+    sendMetaCAPIEvent(email, orderID, capturedValue, req, externalId, testEventCode).catch(err => {
       console.error('Background sendMetaCAPIEvent error:', err);
     });
 

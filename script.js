@@ -1,4 +1,4 @@
-// ---------- DETERMINISTIC CLIENT-SIDE EVENT ID GENERATOR & META CAPI SINGLE SOURCE OF TRUTH ----------
+// ---------- DETERMINISTIC CLIENT-SIDE EVENT ID GENERATOR & DUAL TELEMETRY S2S SINGLE SOURCE OF TRUTH ----------
 const createEventId = (type) => `${type}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
 function getCookie(name) {
@@ -9,6 +9,22 @@ function getCookie(name) {
 
 const getFbp = () => getCookie('_fbp');
 const getFbc = () => getCookie('_fbc');
+const getTtclid = () => getCookie('ttclid') || getCookie('_ttclid');
+
+function getTestEventCode() {
+  if (typeof window === 'undefined') return null;
+  try {
+    var urlParams = new URLSearchParams(window.location.search);
+    var testCode = urlParams.get('tt_test_code') || urlParams.get('test_event_code');
+    if (testCode) {
+      sessionStorage.setItem('pcs_test_event_code', testCode);
+      return testCode;
+    }
+    return sessionStorage.getItem('pcs_test_event_code') || null;
+  } catch (e) {
+    return null;
+  }
+}
 
 function getOrCreateExternalId() {
   if (typeof window === 'undefined') return null;
@@ -64,6 +80,8 @@ function sendCAPIEvent(eventName, eventId, customData = {}, email = '') {
       externalId: getOrCreateExternalId(),
       fbp: getFbp(),
       fbc: getFbc(),
+      ttclid: getTtclid(),
+      test_event_code: getTestEventCode(),
       eventSourceUrl: typeof window !== 'undefined' ? window.location.href : '',
       customData: customData
     };
@@ -73,7 +91,7 @@ function sendCAPIEvent(eventName, eventId, customData = {}, email = '') {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     }).catch(function(err) {
-      console.warn('Meta CAPI client dispatch failed (non-fatal):', err);
+      console.warn('Dual CAPI client dispatch failed (non-fatal):', err);
     });
   } catch (err) {
     console.warn('sendCAPIEvent error:', err);
@@ -84,13 +102,15 @@ if (typeof window !== 'undefined') {
   window.createEventId = createEventId;
   window.getFbp = getFbp;
   window.getFbc = getFbc;
+  window.getTtclid = getTtclid;
+  window.getTestEventCode = getTestEventCode;
   window.getOrCreateExternalId = getOrCreateExternalId;
   window.hashAndPersistEmail = hashAndPersistEmail;
   window.sendCAPIEvent = sendCAPIEvent;
 }
 
-// Synchronized PageView Meta Pixel & CAPI tracking with external_id alignment
-(function trackPageView() {
+// Synchronized PageView & ViewContent Meta/TikTok Pixel & Dual CAPI tracking
+(function trackPageViewAndContent() {
   if (typeof window === 'undefined') return;
   const currentEventId = createEventId('pv');
   const extId = getOrCreateExternalId();
@@ -99,14 +119,36 @@ if (typeof window !== 'undefined') {
     if (extId) fbq('set', 'userData', { external_id: extId });
     fbq('track', 'PageView', {}, { eventID: currentEventId });
   }
+  if (typeof ttq === 'object' && typeof ttq.track === 'function') {
+    ttq.track('PageView', {}, { event_id: currentEventId });
+  }
   sendCAPIEvent('PageView', currentEventId);
 
-  // Auto-capture ?email= URL param if present
+  // ViewContent on landing page initialization
+  const path = window.location.pathname;
+  const isLandingPage = path === '/' || path.endsWith('/index.html') || path === '';
+  if (isLandingPage) {
+    const vcEventId = createEventId('vc');
+    const vcData = { content_id: 'pcs_prompt_pack', value: 27.00, currency: 'USD', content_name: 'Portfolio Career Prompt Pack', content_type: 'product' };
+    if (typeof fbq === 'function') {
+      fbq('track', 'ViewContent', vcData, { eventID: vcEventId });
+    }
+    if (typeof ttq === 'object' && typeof ttq.track === 'function') {
+      ttq.track('ViewContent', { content_id: 'pcs_prompt_pack', value: 27.00, currency: 'USD' }, { event_id: vcEventId });
+    }
+    sendCAPIEvent('ViewContent', vcEventId, vcData);
+  }
+
+  // Auto-capture ?email= or ?tt_test_code= URL params if present
   try {
     var urlParams = new URLSearchParams(window.location.search);
     var emailParam = urlParams.get('email');
     if (emailParam) {
       hashAndPersistEmail(emailParam);
+    }
+    var testCodeParam = urlParams.get('tt_test_code') || urlParams.get('test_event_code');
+    if (testCodeParam) {
+      sessionStorage.setItem('pcs_test_event_code', testCodeParam);
     }
   } catch (e) { /* URLSearchParams unavailable */ }
 })();
@@ -276,6 +318,22 @@ function initPreCheckoutLeadCapture(){
 
     hashAndPersistEmail(email);
 
+    // Fire InitiateCheckout on lead capture if not sent yet for this session
+    var isIcSent = false;
+    try { isIcSent = sessionStorage.getItem('pcs_ic_sent') === 'true'; } catch(e) {}
+    if (!isIcSent) {
+      try { sessionStorage.setItem('pcs_ic_sent', 'true'); } catch(e) {}
+      var icLeadEventId = createEventId('ic_lead');
+      var icLeadData = { currency: 'USD', value: 27.00, content_id: 'pcs_prompt_pack', content_name: 'Portfolio Career School Offer', content_type: 'product' };
+      if (typeof fbq === 'function') {
+        fbq('track', 'InitiateCheckout', icLeadData, { eventID: icLeadEventId });
+      }
+      if (typeof ttq === 'object' && typeof ttq.track === 'function') {
+        ttq.track('InitiateCheckout', { value: 27.00, currency: 'USD', content_id: 'pcs_prompt_pack' }, { event_id: icLeadEventId });
+      }
+      sendCAPIEvent('InitiateCheckout', icLeadEventId, icLeadData, email);
+    }
+
     var isSent = false;
     try {
       isSent = sessionStorage.getItem('pcs_lead_sent') === 'true';
@@ -335,6 +393,9 @@ function acceptUpsell(){
 
   if (typeof fbq === 'function') {
     fbq('track', 'Purchase', upsellCustomData, { eventID: upsellOrderId });
+  }
+  if (typeof ttq === 'object' && typeof ttq.track === 'function') {
+    ttq.track('CompletePayment', { value: upsellValue, currency: 'USD', content_id: 'spiderweb-brain-notion-os' }, { event_id: upsellOrderId });
   }
   sendCAPIEvent('Purchase', upsellOrderId, upsellCustomData, customerEmail);
 
@@ -411,8 +472,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
       if (errorEl) errorEl.style.display = 'none';
 
-      // Synchronized InitiateCheckout Meta Pixel & CAPI firing with 1:1 deterministic eventID
+      // Synchronized InitiateCheckout & AddPaymentInfo Meta/TikTok Pixel & CAPI firing
       var icEventId = createEventId('ic');
+      var apiEventId = createEventId('api');
       var icValue = currentTotalAmount || 27.00;
       var icCustomData = {
         currency: 'USD',
@@ -424,8 +486,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
       if (typeof fbq === 'function') {
         fbq('track', 'InitiateCheckout', icCustomData, { eventID: icEventId });
+        fbq('track', 'AddPaymentInfo', icCustomData, { eventID: apiEventId });
+      }
+      if (typeof ttq === 'object' && typeof ttq.track === 'function') {
+        ttq.track('InitiateCheckout', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: icEventId });
+        ttq.track('AddPaymentInfo', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: apiEventId });
       }
       sendCAPIEvent('InitiateCheckout', icEventId, icCustomData, emailInput);
+      sendCAPIEvent('AddPaymentInfo', apiEventId, icCustomData, emailInput);
 
       return actions.resolve();
     },
@@ -482,7 +550,12 @@ document.addEventListener('DOMContentLoaded', function() {
       return fetch('/api/capture-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderID: data.orderID, email: customerEmail, externalId: getOrCreateExternalId() })
+        body: JSON.stringify({
+          orderID: data.orderID,
+          email: customerEmail,
+          externalId: getOrCreateExternalId(),
+          test_event_code: getTestEventCode()
+        })
       })
       .then(function(res) {
         if (!res.ok) throw new Error('Capture order returned status ' + res.status);
@@ -522,9 +595,12 @@ document.addEventListener('DOMContentLoaded', function() {
             content_type: 'product'
           };
 
-          // Client Browser Meta Pixel tracking (Server Meta & TikTok CAPI are dispatched securely by /api/capture-order.js)
+          // Client Browser Meta & TikTok Pixel tracking (Server S2S CAPI is dispatched by /api/capture-order.js)
           if (typeof fbq === 'function') {
             fbq('track', 'Purchase', purCustomData, { eventID: purEventId });
+          }
+          if (typeof ttq === 'object' && typeof ttq.track === 'function') {
+            ttq.track('CompletePayment', { value: capturedValue, currency: 'USD', content_id: 'pcs_prompt_pack' }, { event_id: purEventId });
           }
 
           window.dataLayer = window.dataLayer || [];
