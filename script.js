@@ -162,54 +162,101 @@ if (typeof window !== 'undefined') {
   const currentEventId = createEventId('pv');
   const extId = getOrCreateExternalId();
 
-  if (typeof fbq === 'function') {
-    if (extId) fbq('set', 'userData', { external_id: extId });
-    fbq('track', 'PageView', {}, { eventID: currentEventId });
-  }
-  if (typeof ttq === 'object' && typeof ttq.track === 'function') {
-    ttq.track('PageView', {}, { event_id: currentEventId });
-  }
-  sendCAPIEvent('PageView', currentEventId);
-
-  // ViewContent on landing page initialization
   const path = window.location.pathname;
+  const isCheckoutPage = path.endsWith('/checkout.html') || path === '/checkout';
   const isLandingPage = path === '/' || path.endsWith('/index.html') || path === '';
+  const isUpsellPage = path.endsWith('/upsell.html') || path === '/upsell';
+
+  // 1. GA4 Funnel Events (Top Priority - Fail-Safe Synchronous Dispatch)
+  if (isCheckoutPage) {
+    try {
+      if (typeof gtag === 'function') {
+        gtag('event', 'begin_checkout', getGA4CartPayload());
+      }
+    } catch(err) {
+      console.warn('GA4 begin_checkout warning:', err);
+    }
+  }
+
+  if (isLandingPage) {
+    try {
+      if (typeof gtag === 'function') {
+        gtag('event', 'view_item', {
+          currency: 'USD',
+          value: 27.00,
+          items: [{ item_id: 'pcs_prompt_pack', item_name: 'Portfolio Career AI Prompt Pack', price: 27.00, quantity: 1 }]
+        });
+      }
+    } catch(err) {
+      console.warn('GA4 landing view_item warning:', err);
+    }
+  }
+
+  if (isUpsellPage) {
+    try {
+      if (typeof gtag === 'function') {
+        gtag('event', 'view_item', {
+          currency: 'USD',
+          value: 47.00,
+          items: [{ item_id: 'spiderweb-brain-notion-os', item_name: 'Spider-Web Brain Notion OS', price: 47.00, quantity: 1 }]
+        });
+      }
+    } catch(err) {
+      console.warn('GA4 upsell view_item warning:', err);
+    }
+  }
+
+  // 2. Meta Pixel PageView (Isolated Try/Catch)
+  try {
+    if (typeof fbq === 'function') {
+      if (extId) fbq('set', 'userData', { external_id: extId });
+      fbq('track', 'PageView', {}, { eventID: currentEventId });
+    }
+  } catch(err) {
+    console.warn('Meta PageView pixel warning:', err);
+  }
+
+  // 3. TikTok Pixel PageView (Isolated Try/Catch)
+  try {
+    if (typeof ttq === 'object' && typeof ttq.track === 'function') {
+      ttq.track('PageView', {}, { event_id: currentEventId });
+    }
+  } catch(err) {
+    console.warn('TikTok PageView pixel warning:', err);
+  }
+
+  // 4. Dual CAPI S2S PageView (Isolated Try/Catch)
+  try {
+    sendCAPIEvent('PageView', currentEventId);
+  } catch(err) {
+    console.warn('CAPI PageView warning:', err);
+  }
+
+  // 5. Landing Page Ad Engine ViewContent (Isolated Try/Catch)
   if (isLandingPage) {
     const vcEventId = createEventId('vc');
     const vcData = { content_id: 'pcs_prompt_pack', value: 27.00, currency: 'USD', content_name: 'Portfolio Career Prompt Pack', content_type: 'product' };
-    if (typeof fbq === 'function') {
-      fbq('track', 'ViewContent', vcData, { eventID: vcEventId });
-    }
-    if (typeof ttq === 'object' && typeof ttq.track === 'function') {
-      ttq.track('ViewContent', { content_id: 'pcs_prompt_pack', value: 27.00, currency: 'USD' }, { event_id: vcEventId });
-    }
-    if (typeof gtag === 'function') {
-      gtag('event', 'view_item', {
-        currency: 'USD',
-        value: 27.00,
-        items: [{ item_id: 'pcs_prompt_pack', item_name: 'Portfolio Career AI Prompt Pack', price: 27.00, quantity: 1 }]
-      });
-    }
-    sendCAPIEvent('ViewContent', vcEventId, vcData);
-  }
 
-  // GA4 begin_checkout on checkout page load
-  const isCheckoutPage = path.endsWith('/checkout.html') || path === '/checkout';
-  if (isCheckoutPage) {
-    if (typeof gtag === 'function') {
-      gtag('event', 'begin_checkout', getGA4CartPayload());
+    try {
+      if (typeof fbq === 'function') {
+        fbq('track', 'ViewContent', vcData, { eventID: vcEventId });
+      }
+    } catch(err) {
+      console.warn('Meta ViewContent warning:', err);
     }
-  }
 
-  // GA4 view_item on upsell page load
-  const isUpsellPage = path.endsWith('/upsell.html') || path === '/upsell';
-  if (isUpsellPage) {
-    if (typeof gtag === 'function') {
-      gtag('event', 'view_item', {
-        currency: 'USD',
-        value: 47.00,
-        items: [{ item_id: 'spiderweb-brain-notion-os', item_name: 'Spider-Web Brain Notion OS', price: 47.00, quantity: 1 }]
-      });
+    try {
+      if (typeof ttq === 'object' && typeof ttq.track === 'function') {
+        ttq.track('ViewContent', { content_id: 'pcs_prompt_pack', value: 27.00, currency: 'USD' }, { event_id: vcEventId });
+      }
+    } catch(err) {
+      console.warn('TikTok ViewContent warning:', err);
+    }
+
+    try {
+      sendCAPIEvent('ViewContent', vcEventId, vcData);
+    } catch(err) {
+      console.warn('CAPI ViewContent warning:', err);
     }
   }
 
