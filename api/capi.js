@@ -1,5 +1,13 @@
 import crypto from 'crypto';
 
+function hashSha256(str) {
+  if (!str || typeof str !== 'string') return undefined;
+  const clean = str.trim().toLowerCase();
+  if (!clean) return undefined;
+  if (/^[a-f0-9]{64}$/.test(clean)) return clean;
+  return crypto.createHash('sha256').update(clean).digest('hex');
+}
+
 /**
  * Dual-Engine Server-Side Conversions API (CAPI) Endpoint
  * Synchronously dispatches events in parallel to Meta Conversions API (v19.0) and TikTok Web Events API (v1.3).
@@ -32,17 +40,8 @@ export default async function handler(req, res) {
     const testCode = test_event_code || req.body?.test_code || req.query?.test_event_code || req.query?.tt_test_code || null;
 
     // Hash email using SHA256 if provided
-    let hashedEmailOrRawEmail = null;
-    if (email && typeof email === 'string' && email.trim()) {
-      const cleaned = email.trim().toLowerCase();
-      if (/^[a-f0-9]{64}$/i.test(cleaned)) {
-        hashedEmailOrRawEmail = cleaned;
-      } else if (cleaned.includes('@')) {
-        hashedEmailOrRawEmail = crypto.createHash('sha256').update(cleaned).digest('hex');
-      }
-    }
-
-    const resolvedExternalId = externalId || req.body?.external_id || hashedEmailOrRawEmail || null;
+    const hashedEmail = hashSha256(email);
+    const resolvedExternalId = externalId || req.body?.external_id || hashedEmail || null;
 
     // Extract client IP and User-Agent directly
     const rawIp = req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress || '';
@@ -71,7 +70,7 @@ export default async function handler(req, res) {
               ...(fbp ? { fbp } : {}),
               ...(fbc ? { fbc } : {}),
               ...(resolvedExternalId ? { external_id: resolvedExternalId } : {}),
-              ...(hashedEmailOrRawEmail ? { em: [hashedEmailOrRawEmail] } : {})
+              ...(hashedEmail ? { em: [hashedEmail] } : {})
             },
             custom_data: customData || {
               currency: 'USD',
@@ -111,26 +110,53 @@ export default async function handler(req, res) {
         'Purchase': 'CompletePayment'
       };
       const mappedTikTokEvent = tiktokEventMap[eventName] || eventName;
+      const unixSeconds = Math.floor(Date.now() / 1000);
 
-      const ttPayload = {
+      let contentsArr = [];
+      if (customData && Array.isArray(customData.contents)) {
+        contentsArr = customData.contents;
+      } else if (customData && (customData.content_id || customData.content_ids)) {
+        const cid = customData.content_id || (Array.isArray(customData.content_ids) ? customData.content_ids[0] : 'pcs_prompt_pack');
+        contentsArr = [{
+          content_id: cid,
+          content_type: customData.content_type || 'product',
+          content_name: customData.content_name || 'Portfolio Career AI Prompt Pack',
+          quantity: 1,
+          price: customData.value !== undefined ? Number(customData.value) : 27.00
+        }];
+      }
+
+      const tiktokPayload = {
+        event_source: "web",
+        event_source_id: ttPixelId,
         pixel_code: ttPixelId,
-        event: mappedTikTokEvent,
-        event_id: eventId,
-        timestamp: new Date().toISOString(),
-        context: {
-          page: { url: pageUrl },
-          user: {
-            external_id: resolvedExternalId || undefined,
-            email: hashedEmailOrRawEmail || undefined,
-            ttclid: ttclid || undefined,
-            user_agent: userAgent,
-            ip: clientIp
-          },
-          ad: { callback: ttclid || undefined }
-        },
-        properties: customData || {},
-        ...(testCode ? { test_event_code: testCode } : {})
+        data: [
+          {
+            event: mappedTikTokEvent,
+            event_id: eventId,
+            event_time: unixSeconds,
+            user: {
+              external_id: externalId ? (externalId.length === 64 ? externalId : hashSha256(externalId)) : undefined,
+              email: hashSha256(email),
+              ttclid: ttclid || undefined,
+              user_agent: userAgent,
+              ip: clientIp
+            },
+            page: {
+              url: pageUrl || ""
+            },
+            properties: {
+              value: customData && customData.value !== undefined ? Number(customData.value) : undefined,
+              currency: (customData && customData.currency) || "USD",
+              contents: contentsArr.length > 0 ? contentsArr : undefined
+            }
+          }
+        ]
       };
+
+      if (testCode) {
+        tiktokPayload.test_event_code = testCode;
+      }
 
       const ttEndpoint = 'https://business-api.tiktok.com/open_api/v1.3/event/track/';
       tiktokPromise = fetch(ttEndpoint, {
@@ -139,11 +165,15 @@ export default async function handler(req, res) {
           'Access-Token': ttAccessToken,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(ttPayload)
+        body: JSON.stringify(tiktokPayload)
       })
-      .then(async (r) => {
-        const data = await r.json();
-        return { ok: r.ok && data.code === 0, status: r.status, data };
+      .then(async (ttRes) => {
+        const status = ttRes.status;
+        const text = await ttRes.text();
+        console.log('[TikTok CAPI Status]', status, text);
+        let data;
+        try { data = JSON.parse(text); } catch(e) { data = text; }
+        return { ok: ttRes.ok && (data?.code === 0), status, data };
       })
       .catch((err) => ({ ok: false, error: err.message }));
     } else {

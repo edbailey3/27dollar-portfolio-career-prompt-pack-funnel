@@ -15,7 +15,7 @@ const redis = Redis.fromEnv();
 export async function sendTikTokEvent(email, orderId, capturedValue, req, testEventCode) {
   try {
     const accessToken = process.env.TIKTOK_ACCESS_TOKEN;
-    const pixelId = process.env.TIKTOK_PIXEL_ID;
+    const pixelId = process.env.TIKTOK_PIXEL_ID || 'D9BGIB3C77U133LMOJDG';
 
     if (!accessToken) {
       console.warn('TikTok Access Token is missing in environment variables.');
@@ -23,6 +23,7 @@ export async function sendTikTokEvent(email, orderId, capturedValue, req, testEv
     }
 
     const hashedEmail = crypto.createHash('sha256').update(email.toLowerCase().trim()).digest('hex');
+    const unixSeconds = Math.floor(Date.now() / 1000);
 
     const rawIp = req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress || '';
     const clientIp = (typeof rawIp === 'string' ? rawIp : '').split(',')[0].trim();
@@ -36,38 +37,42 @@ export async function sendTikTokEvent(email, orderId, capturedValue, req, testEv
     const ttclidCookie = getCookie('ttclid') || getCookie('_ttclid');
 
     const payload = {
+      event_source: "web",
+      event_source_id: pixelId,
       pixel_code: pixelId,
-      event: "CompletePayment",
-      event_id: orderId,
-      timestamp: new Date().toISOString(),
-      context: {
-        user: {
-          email: hashedEmail,
-          ...(ttclidCookie ? { ttclid: ttclidCookie } : {})
-        },
-        ip: clientIp,
-        user_agent: userAgent,
-        page: {
-          url: (process.env.SITE_URL || 'https://portfoliocareerschool.com') + '/checkout.html'
-        }
-      },
-      properties: {
-        currency: "USD",
-        value: capturedValue || 27.00,
-        contents: [
-          {
-            price: capturedValue || 27.00,
-            quantity: 1,
-            content_id: "pcs-prompt-pack",
-            content_type: "product",
-            content_name: "Portfolio Career School Offer"
+      data: [
+        {
+          event: "CompletePayment",
+          event_id: orderId,
+          event_time: unixSeconds,
+          user: {
+            email: hashedEmail,
+            ...(ttclidCookie ? { ttclid: ttclidCookie } : {}),
+            user_agent: userAgent,
+            ip: clientIp
+          },
+          page: {
+            url: (process.env.SITE_URL || 'https://portfoliocareerschool.com') + '/checkout.html'
+          },
+          properties: {
+            currency: "USD",
+            value: capturedValue !== undefined ? Number(capturedValue) : 27.00,
+            contents: [
+              {
+                price: capturedValue !== undefined ? Number(capturedValue) : 27.00,
+                quantity: 1,
+                content_id: "pcs-prompt-pack",
+                content_type: "product",
+                content_name: "Portfolio Career School Offer"
+              }
+            ]
           }
-        ]
-      },
+        }
+      ],
       ...(testEventCode ? { test_event_code: testEventCode } : {})
     };
 
-    const response = await fetch('https://business-api.tiktok.com/open_api/v1.3/event/track/', {
+    const ttRes = await fetch('https://business-api.tiktok.com/open_api/v1.3/event/track/', {
       method: 'POST',
       headers: {
         'Access-Token': accessToken,
@@ -76,10 +81,9 @@ export async function sendTikTokEvent(email, orderId, capturedValue, req, testEv
       body: JSON.stringify(payload)
     });
 
-    const data = await response.json();
-    if (!response.ok || data.code !== 0) {
-      console.error('TikTok Events API error response:', data);
-    }
+    const status = ttRes.status;
+    const text = await ttRes.text();
+    console.log('[TikTok Capture Order CAPI Status]', status, text);
   } catch (tiktokError) {
     console.error('TikTok Events API tracking failed:', tiktokError);
   }
