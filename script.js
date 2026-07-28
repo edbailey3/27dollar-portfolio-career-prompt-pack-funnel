@@ -258,10 +258,7 @@ if (typeof window !== 'undefined') {
         ttq.identify(ttIdentity);
       }
       if (typeof ttq.page === 'function') {
-        ttq.page({}, { event_id: currentEventId });
-      }
-      if (typeof ttq.track === 'function') {
-        ttq.track('PageView', {}, { event_id: currentEventId });
+        ttq.page();
       }
     }
   } catch(err) {

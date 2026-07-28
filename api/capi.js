@@ -103,14 +103,18 @@ export default async function handler(req, res) {
 
     let tiktokPromise;
     if (ttAccessToken) {
-      let mappedEventName = eventName;
-      if (eventName === 'Purchase') {
-        mappedEventName = 'CompletePayment';
-      }
+      const tiktokEventMap = {
+        'PageView': 'Pageview',
+        'ViewContent': 'ViewContent',
+        'InitiateCheckout': 'InitiateCheckout',
+        'AddPaymentInfo': 'AddPaymentInfo',
+        'Purchase': 'CompletePayment'
+      };
+      const mappedTikTokEvent = tiktokEventMap[eventName] || eventName;
 
       const ttPayload = {
         pixel_code: ttPixelId,
-        event: mappedEventName,
+        event: mappedTikTokEvent,
         event_id: eventId,
         timestamp: new Date().toISOString(),
         context: {
