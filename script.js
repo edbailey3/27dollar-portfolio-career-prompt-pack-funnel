@@ -83,6 +83,9 @@ async function hashAndPersistEmail(email) {
     if (typeof fbq === 'function') {
       fbq('init', '2772807839768527', { external_id: hashed, em: hashed });
     }
+    if (typeof ttq === 'object' && typeof ttq.identify === 'function') {
+      ttq.identify({ external_id: hashed, email: cleanEmail });
+    }
     return hashed;
   }
   return getOrCreateExternalId();
@@ -236,8 +239,19 @@ if (typeof window !== 'undefined') {
 
   // 3. TikTok Pixel PageView (Isolated Try/Catch)
   try {
-    if (typeof ttq === 'object' && typeof ttq.track === 'function') {
-      ttq.track('PageView', {}, { event_id: currentEventId });
+    const ttIdentity = { external_id: extId };
+    try {
+      const storedEmail = sessionStorage.getItem('pcs_customer_email');
+      if (storedEmail) {
+        ttIdentity.email = storedEmail;
+      }
+    } catch (e) { /* storage disabled */ }
+
+    if (typeof ttq === 'object' && typeof ttq.identify === 'function') {
+      ttq.identify(ttIdentity);
+    }
+    if (typeof ttq === 'object' && typeof ttq.page === 'function') {
+      ttq.page({}, { event_id: currentEventId });
     }
   } catch(err) {
     console.warn('TikTok PageView pixel warning:', err);
