@@ -183,6 +183,17 @@ if (typeof window !== 'undefined') {
   const currentEventId = createEventId('pv');
   const extId = sanitizeId(getOrCreateExternalId());
 
+  try {
+    var urlParams = new URLSearchParams(window.location.search);
+    var testCodeParam = urlParams.get('tt_test_code') || urlParams.get('test_event_code');
+    if (testCodeParam) {
+      sessionStorage.setItem('pcs_test_event_code', testCodeParam);
+      if (typeof ttq === 'object' && typeof ttq.debug === 'function') {
+        ttq.debug(testCodeParam);
+      }
+    }
+  } catch (e) { /* storage or URLSearchParams unavailable */ }
+
   const path = window.location.pathname;
   const isCheckoutPage = path.endsWith('/checkout.html') || path === '/checkout';
   const isLandingPage = path === '/' || path.endsWith('/index.html') || path === '';
@@ -239,19 +250,16 @@ if (typeof window !== 'undefined') {
 
   // 3. TikTok Pixel PageView (Isolated Try/Catch)
   try {
-    const ttIdentity = { external_id: extId };
-    try {
-      const storedEmail = sessionStorage.getItem('pcs_customer_email');
-      if (storedEmail) {
-        ttIdentity.email = storedEmail;
+    if (typeof ttq === 'object') {
+      if (extId && typeof ttq.identify === 'function') {
+        const ttIdentity = { external_id: extId };
+        const storedEmail = sessionStorage.getItem('pcs_customer_email');
+        if (storedEmail) ttIdentity.email = storedEmail;
+        ttq.identify(ttIdentity);
       }
-    } catch (e) { /* storage disabled */ }
-
-    if (typeof ttq === 'object' && typeof ttq.identify === 'function') {
-      ttq.identify(ttIdentity);
-    }
-    if (typeof ttq === 'object' && typeof ttq.page === 'function') {
-      ttq.page({}, { event_id: currentEventId });
+      if (typeof ttq.page === 'function') {
+        ttq.page();
+      }
     }
   } catch(err) {
     console.warn('TikTok PageView pixel warning:', err);
