@@ -619,7 +619,13 @@ document.addEventListener('DOMContentLoaded', async function() {
   try {
     const sdkInstance = await window.paypal.createInstance({
       clientId: "AZ1_0aTSSXkrHYWZbBAc9ZhXBvNL_EC6UPGqBAiCZYltK_-fS8EoZsKS6_XvNbtWDkAv8-yzQOvAmGkw",
-      components: ["paypal-payments", "applepay-payments", "googlepay-payments"],
+      components: [
+        "paypal-payments",
+        "venmo-payments",
+        "paypal-guest-payments",
+        "applepay-payments",
+        "googlepay-payments"
+      ],
       pageType: "checkout",
       locale: "en-US"
     });
@@ -757,26 +763,92 @@ document.addEventListener('DOMContentLoaded', async function() {
       }
     }
 
-    // 1. STANDARD PAYPAL BUTTON (v6 Web Component)
+    // 1. STANDARD PAYPAL BUTTON
     if (paymentMethods.isEligible("paypal")) {
       const paypalSession = sdkInstance.createPayPalOneTimePaymentSession({
         onApprove: handleOrderApprove,
         onCancel: (data) => console.log('PayPal cancelled:', data),
         onError: (err) => console.error('PayPal error:', err)
       });
-
       const paypalBtn = document.getElementById('paypal-btn');
       if (paypalBtn) {
         paypalBtn.removeAttribute('hidden');
         paypalBtn.addEventListener('click', async () => {
           const prep = validateAndPrepareOrder();
-          if (!prep) return;
-          await paypalSession.start({ presentationMode: 'auto' }, prep.createOrderPromise);
+          if (prep && prep.createOrderPromise) {
+            await paypalSession.start({ presentationMode: 'auto' }, prep.createOrderPromise);
+          }
         });
       }
     }
 
-    // 2. APPLE PAY BUTTON
+    // 2. PAY LATER BUTTON
+    if (paymentMethods.isEligible("paylater") || paymentMethods.isEligible("pay_later") || paymentMethods.isEligible("paypal")) {
+      const createPayLaterSession = sdkInstance.createPayLaterOneTimePaymentSession || sdkInstance.createPayPalPayLaterOneTimePaymentSession || sdkInstance.createPayPalOneTimePaymentSession;
+      if (typeof createPayLaterSession === 'function') {
+        const paylaterSession = createPayLaterSession.call(sdkInstance, {
+          onApprove: handleOrderApprove,
+          onCancel: (data) => console.log('Pay Later cancelled:', data),
+          onError: (err) => console.error('Pay Later error:', err)
+        });
+        const paylaterBtn = document.getElementById('paylater-btn');
+        if (paylaterBtn) {
+          paylaterBtn.removeAttribute('hidden');
+          paylaterBtn.addEventListener('click', async () => {
+            const prep = validateAndPrepareOrder();
+            if (prep && prep.createOrderPromise) {
+              await paylaterSession.start({ presentationMode: 'auto' }, prep.createOrderPromise);
+            }
+          });
+        }
+      }
+    }
+
+    // 3. VENMO BUTTON
+    if (paymentMethods.isEligible("venmo")) {
+      const createVenmoSession = sdkInstance.createVenmoOneTimePaymentSession || sdkInstance.createPayPalVenmoOneTimePaymentSession || sdkInstance.createPayPalOneTimePaymentSession;
+      if (typeof createVenmoSession === 'function') {
+        const venmoSession = createVenmoSession.call(sdkInstance, {
+          onApprove: handleOrderApprove,
+          onCancel: (data) => console.log('Venmo cancelled:', data),
+          onError: (err) => console.error('Venmo error:', err)
+        });
+        const venmoBtn = document.getElementById('venmo-btn');
+        if (venmoBtn) {
+          venmoBtn.removeAttribute('hidden');
+          venmoBtn.addEventListener('click', async () => {
+            const prep = validateAndPrepareOrder();
+            if (prep && prep.createOrderPromise) {
+              await venmoSession.start({ presentationMode: 'auto' }, prep.createOrderPromise);
+            }
+          });
+        }
+      }
+    }
+
+    // 4. CREDIT & DEBIT CARD (GUEST PAYMENTS) BUTTON
+    if (paymentMethods.isEligible("card") || paymentMethods.isEligible("paypal-guest-payments") || paymentMethods.isEligible("paypal")) {
+      const createGuestSession = sdkInstance.createPayPalGuestOneTimePaymentSession || sdkInstance.createGuestOneTimePaymentSession || sdkInstance.createPayPalOneTimePaymentSession;
+      if (typeof createGuestSession === 'function') {
+        const guestSession = createGuestSession.call(sdkInstance, {
+          onApprove: handleOrderApprove,
+          onCancel: (data) => console.log('Card payment cancelled:', data),
+          onError: (err) => console.error('Card payment error:', err)
+        });
+        const cardBtn = document.getElementById('card-btn');
+        if (cardBtn) {
+          cardBtn.removeAttribute('hidden');
+          cardBtn.addEventListener('click', async () => {
+            const prep = validateAndPrepareOrder();
+            if (prep && prep.createOrderPromise) {
+              await guestSession.start({ presentationMode: 'auto' }, prep.createOrderPromise);
+            }
+          });
+        }
+      }
+    }
+
+    // 5. APPLE PAY BUTTON
     if (paymentMethods.isEligible("applepay")) {
       const createAppleSession = sdkInstance.createApplePayOneTimePaymentSession || sdkInstance.createApplePaySession;
       if (typeof createAppleSession === 'function') {
@@ -801,7 +873,7 @@ document.addEventListener('DOMContentLoaded', async function() {
       }
     }
 
-    // 3. GOOGLE PAY BUTTON
+    // 6. GOOGLE PAY BUTTON
     if (paymentMethods.isEligible("googlepay")) {
       const createGoogleSession = sdkInstance.createGooglePayOneTimePaymentSession || sdkInstance.createGooglePaySession;
       if (typeof createGoogleSession === 'function') {
