@@ -823,20 +823,36 @@ document.addEventListener('DOMContentLoaded', async function() {
       }
     }
 
-    // 5. Apple Pay
-    if (paymentMethods.isEligible("applepay")) {
-      const applePaySession = sdkInstance.createApplePayOneTimePaymentSession ? sdkInstance.createApplePayOneTimePaymentSession({ onApprove: handleOrderApprove }) : (sdkInstance.createApplePaySession ? sdkInstance.createApplePaySession({ onApprove: handleOrderApprove }) : null);
-      const appleContainer = document.getElementById('apple-pay-container');
-      if (appleContainer && applePaySession) {
-        appleContainer.innerHTML = '<applepay-button id="apple-pay-btn" buttonstyle="black" type="buy" locale="en-US" style="width: 100%; height: 48px; display: block; cursor: pointer;"></applepay-button>';
-        const appleBtn = document.getElementById('apple-pay-btn');
-        if (appleBtn) {
-          appleBtn.session = applePaySession;
-          appleBtn.addEventListener('click', async () => {
-            const order = validateAndPrepareOrder();
-            if (order) await applePaySession.start({ presentationMode: 'auto' }, order);
+    // 5. Apple Pay (Check SDK eligibility OR Safari ApplePaySession readiness)
+    const isApplePayEligible = paymentMethods.isEligible("applepay") || 
+      (typeof window.ApplePaySession !== 'undefined' && window.ApplePaySession.canMakePayments());
+
+    if (isApplePayEligible) {
+      try {
+        const createAppleSession = sdkInstance.createApplePayOneTimePaymentSession || sdkInstance.createApplePaySession;
+        if (typeof createAppleSession === 'function') {
+          const applePaySession = createAppleSession.call(sdkInstance, {
+            onApprove: handleOrderApprove,
+            onCancel: (data) => console.log('Apple Pay cancelled:', data),
+            onError: (err) => console.error('Apple Pay error:', err)
           });
+          const appleContainer = document.getElementById('apple-pay-container');
+          if (appleContainer) {
+            appleContainer.innerHTML = '<applepay-button id="apple-pay-btn" buttonstyle="black" type="buy" locale="en-US" style="width: 100%; height: 48px; display: block; cursor: pointer; margin-bottom: 10px;"></applepay-button>';
+            const appleBtn = document.getElementById('apple-pay-btn');
+            if (appleBtn) {
+              appleBtn.session = applePaySession;
+              appleBtn.addEventListener('click', async () => {
+                const createOrderPromise = validateAndPrepareOrder();
+                if (createOrderPromise) {
+                  await applePaySession.start({ presentationMode: 'auto' }, createOrderPromise);
+                }
+              });
+            }
+          }
         }
+      } catch (appleErr) {
+        console.warn('Apple Pay session initialization warning:', appleErr);
       }
     }
 
