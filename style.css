@@ -549,6 +549,16 @@ section{ padding: 56px 0; }
   gap: 10px;
 }
 
+/* Ensure mobile wallet web components render with explicit dimensions when present */
+applepay-button,
+googlepay-button {
+  display: block !important;
+  width: 100% !important;
+  height: 48px !important;
+  cursor: pointer;
+}
+
+/* Ensure empty containers collapse to 0px */
 #apple-pay-container:empty,
 #google-pay-container:empty,
 [hidden] {
