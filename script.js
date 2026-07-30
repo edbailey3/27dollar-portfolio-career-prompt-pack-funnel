@@ -821,21 +821,6 @@ document.addEventListener('DOMContentLoaded', async function() {
       }
     }
 
-    // Helper to insert wallet container dynamically before PayPal button
-    function getOrCreateWalletContainer(id) {
-      let container = document.getElementById(id);
-      if (!container) {
-        container = document.createElement('div');
-        container.id = id;
-        container.style.cssText = 'width: 100%; margin-bottom: 10px;';
-        const paypalBtn = document.getElementById('paypal-btn');
-        if (paypalBtn && paypalBtn.parentNode) {
-          paypalBtn.parentNode.insertBefore(container, paypalBtn);
-        }
-      }
-      return container;
-    }
-
     // 5. Apple Pay (Check SDK eligibility OR Safari ApplePaySession readiness)
     const isApplePayEligible = paymentMethods.isEligible("applepay") || 
       (typeof window.ApplePaySession !== 'undefined' && window.ApplePaySession.canMakePayments());
@@ -849,9 +834,9 @@ document.addEventListener('DOMContentLoaded', async function() {
             onCancel: (data) => console.log('Apple Pay cancelled:', data),
             onError: (err) => console.error('Apple Pay error:', err)
           });
-          const appleContainer = getOrCreateWalletContainer('apple-pay-container');
+          const appleContainer = document.getElementById('apple-pay-container');
           if (appleContainer) {
-            appleContainer.innerHTML = '<applepay-button id="apple-pay-btn" buttonstyle="black" type="buy" locale="en-US" style="width: 100%; height: 48px; display: block; cursor: pointer;"></applepay-button>';
+            appleContainer.innerHTML = '<applepay-button id="apple-pay-btn" buttonstyle="black" type="buy" locale="en-US"></applepay-button>';
             const appleBtn = document.getElementById('apple-pay-btn');
             if (appleBtn) {
               appleBtn.session = applePaySession;
@@ -862,8 +847,6 @@ document.addEventListener('DOMContentLoaded', async function() {
                     await applePaySession.start({ presentationMode: 'auto' }, createOrderPromise);
                   } else if (typeof applePaySession.begin === 'function') {
                     await applePaySession.begin();
-                  } else {
-                    console.warn('Apple Pay session start method not available on this device');
                   }
                 }
               });
@@ -888,9 +871,9 @@ document.addEventListener('DOMContentLoaded', async function() {
             onCancel: (data) => console.log('Google Pay cancelled:', data),
             onError: (err) => console.error('Google Pay error:', err)
           });
-          const googleContainer = getOrCreateWalletContainer('google-pay-container');
+          const googleContainer = document.getElementById('google-pay-container');
           if (googleContainer) {
-            googleContainer.innerHTML = '<googlepay-button id="google-pay-btn" buttonstyle="black" type="buy" locale="en-US" style="width: 100%; height: 48px; display: block; cursor: pointer;"></googlepay-button>';
+            googleContainer.innerHTML = '<googlepay-button id="google-pay-btn" buttonstyle="black" type="buy" locale="en-US"></googlepay-button>';
             const googleBtn = document.getElementById('google-pay-btn');
             if (googleBtn) {
               googleBtn.session = googlePaySession;

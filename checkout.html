@@ -145,16 +145,20 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
         </div>
       </div>
 
-      <div class="checkout-btn-wrap" style="margin-top: 26px;">
+      <div class="checkout-btn-wrap" style="margin-top: 26px; display: flex; flex-direction: column; gap: 10px;">
         <!-- 1. Debit or Credit Card -->
-        <paypal-basic-card-container style="width: 100%; display: block; margin-bottom: 10px;">
-          <paypal-basic-card-button id="card-btn" hidden style="width: 100%; display: block;"></paypal-basic-card-button>
+        <paypal-basic-card-container style="width: 100%;">
+          <paypal-basic-card-button id="card-btn" hidden style="width: 100%;"></paypal-basic-card-button>
         </paypal-basic-card-container>
 
-        <!-- 2. PayPal, Pay Later, Venmo -->
-        <paypal-button id="paypal-btn" hidden style="width: 100%; display: block; margin-bottom: 10px;"></paypal-button>
-        <paypal-pay-later-button id="paylater-btn" country-code="US" product-code="PAYLATER" hidden style="width: 100%; display: block; margin-bottom: 10px;"></paypal-pay-later-button>
-        <venmo-button id="venmo-btn" hidden style="width: 100%; display: block; margin-bottom: 10px;"></venmo-button>
+        <!-- 2. Mobile Wallets (Will collapse if empty or hidden by SDK) -->
+        <div id="apple-pay-container"></div>
+        <div id="google-pay-container"></div>
+
+        <!-- 3. PayPal, Pay Later, Venmo -->
+        <paypal-button id="paypal-btn" hidden style="width: 100%;"></paypal-button>
+        <paypal-pay-later-button id="paylater-btn" country-code="US" product-code="PAYLATER" hidden style="width: 100%;"></paypal-pay-later-button>
+        <venmo-button id="venmo-btn" hidden style="width: 100%;"></venmo-button>
       </div>
 
       <div class="trust-row">
