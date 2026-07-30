@@ -608,145 +608,121 @@ function showConfirm(title, text){
 
 // ---------- PAYPAL JAVASCRIPT SDK V6 DISPATCH INFRASTRUCTURE ----------
 document.addEventListener('DOMContentLoaded', async function() {
-  var container = document.getElementById('paypal-button-container');
-  if (!container) return; // Not on checkout page — exit cleanly
+  const paypalContainer = document.querySelector('.checkout-btn-wrap');
+  if (!paypalContainer) return; // Not on checkout page — exit cleanly
 
-  if (typeof window.paypal === 'undefined' || typeof window.paypal.createInstance !== 'function') {
-    console.error('PayPal SDK v6 not loaded. Cannot initialize checkout.');
-    container.innerHTML = '<p style="color:#cc0000; font-size:14px; text-align:center;">Payment system failed to load. Please refresh the page.</p>';
+  if (typeof window.paypal === 'undefined' || !window.paypal.createInstance) {
+    console.error('PayPal v6 SDK core not loaded');
     return;
   }
 
   try {
     const sdkInstance = await window.paypal.createInstance({
       clientId: "AZ1_0aTSSXkrHYWZbBAc9ZhXBvNL_EC6UPGqBAiCZYltK_-fS8EoZsKS6_XvNbtWDkAv8-yzQOvAmGkw",
-      components: ["paypal-payments", "venmo-payments", "applepay-payments", "googlepay-payments"],
+      components: ["paypal-payments", "applepay-payments", "googlepay-payments"],
       pageType: "checkout",
       locale: "en-US"
     });
 
     const paymentMethods = await sdkInstance.findEligibleMethods({ currencyCode: "USD" });
 
-    // Pre-checkout email validator & gatekeeper
-    function validateAndPersistCustomerEmail() {
-      var emailEl = document.getElementById('customer-email');
-      var emailInput = emailEl ? emailEl.value.trim().toLowerCase() : '';
-      var errorEl = document.getElementById('email-error');
+    // 1. STANDARD PAYPAL BUTTON (v6 Web Component)
+    if (paymentMethods.isEligible("paypal")) {
+      const paypalSession = sdkInstance.createPayPalOneTimePaymentSession({
+        onApprove: async (data) => {
+          const emailEl = document.getElementById('customer-email');
+          const customerEmail = emailEl ? emailEl.value.trim().toLowerCase() : '';
+          const orderID = data.orderId || data.orderID;
 
-      if (!emailInput || !emailInput.includes('@')) {
-        if (errorEl) errorEl.style.display = 'block';
-        if (emailEl) emailEl.focus();
-        return null;
-      }
-      if (errorEl) errorEl.style.display = 'none';
+          var isAlreadyProcessed = false;
+          try {
+            isAlreadyProcessed = sessionStorage.getItem('pcs_purchase_processed_' + orderID) === 'true';
+          } catch(e) {}
 
-      hashAndPersistEmail(emailInput);
-      return emailInput;
-    }
+          if (window.isBasePurchaseProcessed || isAlreadyProcessed) {
+            window.location.href = '/upsell.html';
+            return;
+          }
+          window.isBasePurchaseProcessed = true;
+          try {
+            sessionStorage.setItem('pcs_purchase_processed_' + orderID, 'true');
+            sessionStorage.setItem('pcs_base_order_id', orderID);
+            if (customerEmail) sessionStorage.setItem('pcs_customer_email', customerEmail);
+          } catch(e) {}
 
-    // Server Order Creator (v6 required return shape: { orderId: data.id })
-    async function handleCreateOrder() {
-      var b1 = !!(document.getElementById('bump1-check') || {}).checked;
-      var b2 = !!(document.getElementById('bump2-check') || {}).checked;
-      var selectedAmount = (27 + (b1 ? 17 : 0) + (b2 ? 12 : 0)).toFixed(2);
+          hashAndPersistEmail(customerEmail);
 
-      const res = await fetch('/api/create-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bump1: b1, bump2: b2, amount: selectedAmount })
-      });
-      if (!res.ok) throw new Error('Create order request failed with status ' + res.status);
-      const data = await res.json();
-      if (!data || !data.id) throw new Error('PayPal order ID missing in response');
-      return { orderId: data.id };
-    }
-
-    // Order Capture & Telemetry Dispatch
-    async function handleOrderCapture(orderID, customerEmail) {
-      var isAlreadyProcessed = false;
-      try {
-        isAlreadyProcessed = sessionStorage.getItem('pcs_purchase_processed_' + orderID) === 'true';
-      } catch(e) {}
-
-      if (window.isBasePurchaseProcessed || isAlreadyProcessed) {
-        window.location.href = '/upsell.html';
-        return;
-      }
-      window.isBasePurchaseProcessed = true;
-      try {
-        sessionStorage.setItem('pcs_purchase_processed_' + orderID, 'true');
-        sessionStorage.setItem('pcs_base_order_id', orderID);
-        if (customerEmail) sessionStorage.setItem('pcs_customer_email', customerEmail);
-      } catch(e) {}
-
-      hashAndPersistEmail(customerEmail);
-
-      const res = await fetch('/api/capture-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderID: orderID,
-          email: customerEmail,
-          externalId: getOrCreateExternalId(),
-          test_event_code: getTestEventCode()
-        })
-      });
-      if (!res.ok) throw new Error('Capture order returned status ' + res.status);
-      const details = await res.json();
-
-      if (!details) {
-        alert('Payment could not be verified. Please contact support.');
-        return;
-      }
-
-      if (details.status === 'COMPLETED') {
-        var capturedValue = details.value || currentTotalAmount || 27.00;
-        var purEventId = orderID || createEventId('pur');
-        var purCustomData = {
-          currency: 'USD',
-          value: capturedValue,
-          content_name: 'Portfolio Career School Offer',
-          content_ids: ['pcs-prompt-pack'],
-          content_type: 'product'
-        };
-
-        if (typeof fbq === 'function') {
-          fbq('track', 'Purchase', purCustomData, { eventID: purEventId });
-        }
-        if (typeof ttq === 'object' && typeof ttq.track === 'function') {
-          ttq.track('CompletePayment', { value: capturedValue, currency: 'USD', content_id: 'pcs_prompt_pack' }, { event_id: purEventId });
-        }
-        if (typeof gtag === 'function') {
-          var ga4Cart = getGA4CartPayload();
-          gtag('event', 'purchase', {
-            transaction_id: orderID,
-            currency: 'USD',
-            value: ga4Cart.value,
-            items: ga4Cart.items
+          const res = await fetch('/api/capture-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderID: orderID,
+              email: customerEmail,
+              externalId: getOrCreateExternalId(),
+              test_event_code: getTestEventCode()
+            })
           });
-        }
+          const details = await res.json();
+          if (details && details.status === 'COMPLETED') {
+            var capturedValue = details.value || currentTotalAmount || 27.00;
+            var purEventId = orderID || createEventId('pur');
+            var purCustomData = {
+              currency: 'USD',
+              value: capturedValue,
+              content_name: 'Portfolio Career School Offer',
+              content_ids: ['pcs-prompt-pack'],
+              content_type: 'product'
+            };
 
-        window.dataLayer = window.dataLayer || [];
-        window.dataLayer.push({
-          'event': 'purchase_funnel_completed',
-          'transactionId': purEventId,
-          'value': capturedValue,
-          'currency': 'USD'
-        });
+            if (typeof fbq === 'function') {
+              fbq('track', 'Purchase', purCustomData, { eventID: purEventId });
+            }
+            if (typeof ttq === 'object' && typeof ttq.track === 'function') {
+              ttq.track('CompletePayment', { value: capturedValue, currency: 'USD', content_id: 'pcs_prompt_pack' }, { event_id: purEventId });
+            }
+            if (typeof gtag === 'function') {
+              var ga4Cart = getGA4CartPayload();
+              gtag('event', 'purchase', {
+                transaction_id: orderID,
+                currency: 'USD',
+                value: ga4Cart.value,
+                items: ga4Cart.items
+              });
+            }
 
-        window.location.href = '/upsell.html';
-      } else {
-        alert('Payment could not be verified. Please try again.');
-      }
-    }
+            window.dataLayer = window.dataLayer || [];
+            window.dataLayer.push({
+              'event': 'purchase_funnel_completed',
+              'transactionId': purEventId,
+              'value': capturedValue,
+              'currency': 'USD'
+            });
 
-    // 1. Render PayPal / Venmo Buttons if eligible
-    if (paymentMethods.isEligible("paypal") || paymentMethods.isEligible("venmo")) {
-      const buttonConfig = {
-        style: { layout: 'vertical', color: 'gold', shape: 'rect', label: 'paypal' },
-        onClick: function(data, actions) {
-          const customerEmail = validateAndPersistCustomerEmail();
-          if (!customerEmail) return actions ? actions.reject() : false;
+            window.location.href = '/upsell.html';
+          } else {
+            alert('Payment could not be verified. Please contact support.');
+          }
+        },
+        onCancel: (data) => console.log('Payment cancelled:', data),
+        onError: (err) => console.error('Payment error:', err)
+      });
+
+      const paypalBtn = document.getElementById('paypal-btn');
+      if (paypalBtn) {
+        paypalBtn.removeAttribute('hidden');
+        paypalBtn.addEventListener('click', async () => {
+          const emailEl = document.getElementById('customer-email');
+          const emailInput = emailEl ? emailEl.value.trim().toLowerCase() : '';
+          const errorEl = document.getElementById('email-error');
+
+          if (!emailInput || !emailInput.includes('@')) {
+            if (errorEl) errorEl.style.display = 'block';
+            if (emailEl) emailEl.focus();
+            return;
+          }
+          if (errorEl) errorEl.style.display = 'none';
+
+          hashAndPersistEmail(emailInput);
 
           var icEventId = createEventId('ic');
           var apiEventId = createEventId('api');
@@ -770,105 +746,26 @@ document.addEventListener('DOMContentLoaded', async function() {
           if (typeof gtag === 'function') {
             gtag('event', 'add_payment_info', getGA4CartPayload());
           }
-          sendCAPIEvent('InitiateCheckout', icEventId, icCustomData, customerEmail);
-          sendCAPIEvent('AddPaymentInfo', apiEventId, icCustomData, customerEmail);
+          sendCAPIEvent('InitiateCheckout', icEventId, icCustomData, emailInput);
+          sendCAPIEvent('AddPaymentInfo', apiEventId, icCustomData, emailInput);
 
-          return actions ? actions.resolve() : true;
-        },
-        createOrder: async function() {
-          return await handleCreateOrder();
-        },
-        onApprove: async function(data) {
-          const emailEl = document.getElementById('customer-email');
-          const customerEmail = emailEl ? emailEl.value.trim().toLowerCase() : '';
-          const orderID = data.orderID || data.orderId;
-          await handleOrderCapture(orderID, customerEmail);
-        }
-      };
+          const b1 = !!(document.getElementById('bump1-check') || {}).checked;
+          const b2 = !!(document.getElementById('bump2-check') || {}).checked;
+          const selectedAmount = (27 + (b1 ? 17 : 0) + (b2 ? 12 : 0)).toFixed(2);
 
-      if (typeof sdkInstance.Buttons === 'function') {
-        sdkInstance.Buttons(buttonConfig).render('#paypal-button-container');
-      } else if (typeof window.paypal.Buttons === 'function') {
-        window.paypal.Buttons({
-          ...buttonConfig,
-          createOrder: async function(data, actions) {
-            const orderRes = await handleCreateOrder();
-            return orderRes.orderId;
-          }
-        }).render('#paypal-button-container');
+          const createOrderPromise = fetch('/api/create-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bump1: b1, bump2: b2, amount: selectedAmount })
+          })
+          .then(res => res.json())
+          .then(order => ({ orderId: order.id }));
+
+          await paypalSession.start({ presentationMode: 'auto' }, createOrderPromise);
+        });
       }
     }
-
-    // 2. Conditionally Mount Apple Pay Component if eligible
-    if (paymentMethods.isEligible("applepay")) {
-      const appleContainer = document.getElementById('apple-pay-container');
-      if (appleContainer) {
-        appleContainer.style.display = 'block';
-        if (typeof sdkInstance.createApplePayButton === 'function') {
-          sdkInstance.createApplePayButton({
-            container: '#apple-pay-container',
-            onClick: async () => {
-              const email = validateAndPersistCustomerEmail();
-              return !!email;
-            },
-            createOrder: async () => await handleCreateOrder(),
-            onApprove: async (data) => {
-              const emailEl = document.getElementById('customer-email');
-              const customerEmail = emailEl ? emailEl.value.trim().toLowerCase() : '';
-              await handleOrderCapture(data.orderID || data.orderId, customerEmail);
-            }
-          });
-        } else {
-          const appleBtn = document.createElement('applepay-payment-button');
-          appleBtn.addEventListener('click', async () => {
-            const email = validateAndPersistCustomerEmail();
-            if (!email) return;
-            const orderObj = await handleCreateOrder();
-            if (orderObj && orderObj.orderId) {
-              await handleOrderCapture(orderObj.orderId, email);
-            }
-          });
-          appleContainer.appendChild(appleBtn);
-        }
-      }
-    }
-
-    // 3. Conditionally Mount Google Pay Component if eligible
-    if (paymentMethods.isEligible("googlepay")) {
-      const googleContainer = document.getElementById('google-pay-container');
-      if (googleContainer) {
-        googleContainer.style.display = 'block';
-        if (typeof sdkInstance.createGooglePayButton === 'function') {
-          sdkInstance.createGooglePayButton({
-            container: '#google-pay-container',
-            onClick: async () => {
-              const email = validateAndPersistCustomerEmail();
-              return !!email;
-            },
-            createOrder: async () => await handleCreateOrder(),
-            onApprove: async (data) => {
-              const emailEl = document.getElementById('customer-email');
-              const customerEmail = emailEl ? emailEl.value.trim().toLowerCase() : '';
-              await handleOrderCapture(data.orderID || data.orderId, customerEmail);
-            }
-          });
-        } else {
-          const googleBtn = document.createElement('googlepay-payment-button');
-          googleBtn.addEventListener('click', async () => {
-            const email = validateAndPersistCustomerEmail();
-            if (!email) return;
-            const orderObj = await handleCreateOrder();
-            if (orderObj && orderObj.orderId) {
-              await handleOrderCapture(orderObj.orderId, email);
-            }
-          });
-          googleContainer.appendChild(googleBtn);
-        }
-      }
-    }
-
   } catch (err) {
-    console.error('PayPal SDK v6 initialization failed:', err);
-    container.innerHTML = '<p style="color:#cc0000; font-size:14px; text-align:center;">Payment system failed to initialize. Please refresh the page.</p>';
+    console.error('PayPal v6 initialization error:', err);
   }
 });
