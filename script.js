@@ -606,29 +606,29 @@ function showConfirm(title, text){
 }
 
 
-// ---------- PAYPAL SECURE DISPATCH INFRASTRUCTURE ----------
-// FIX: Deferred inside DOMContentLoaded to eliminate the temporal dead zone where
-// `paypal` global might be undefined if SDK hasn't executed yet. Guard added.
-document.addEventListener('DOMContentLoaded', function() {
+// ---------- PAYPAL JAVASCRIPT SDK V6 DISPATCH INFRASTRUCTURE ----------
+document.addEventListener('DOMContentLoaded', async function() {
   var container = document.getElementById('paypal-button-container');
   if (!container) return; // Not on checkout page — exit cleanly
 
-  // FIX: Explicit PayPal SDK availability guard before calling paypal.Buttons()
-  if (typeof paypal === 'undefined') {
-    console.error('PayPal SDK not loaded. Cannot initialize checkout buttons.');
+  if (typeof window.paypal === 'undefined' || typeof window.paypal.createInstance !== 'function') {
+    console.error('PayPal SDK v6 not loaded. Cannot initialize checkout.');
     container.innerHTML = '<p style="color:#cc0000; font-size:14px; text-align:center;">Payment system failed to load. Please refresh the page.</p>';
     return;
   }
 
-  paypal.Buttons({
-    style: {
-      layout: 'vertical',
-      color:  'gold',
-      shape:  'rect',
-      label:  'paypal'
-    },
+  try {
+    const sdkInstance = await window.paypal.createInstance({
+      clientId: "AZ1_0aTSSXkrHYWZbBAc9ZhXBvNL_EC6UPGqBAiCZYltK_-fS8EoZsKS6_XvNbtWDkAv8-yzQOvAmGkw",
+      components: ["paypal-payments", "venmo-payments", "applepay-payments", "googlepay-payments"],
+      pageType: "checkout",
+      locale: "en-US"
+    });
 
-    onClick: function(data, actions) {
+    const paymentMethods = await sdkInstance.findEligibleMethods({ currencyCode: "USD" });
+
+    // Pre-checkout email validator & gatekeeper
+    function validateAndPersistCustomerEmail() {
       var emailEl = document.getElementById('customer-email');
       var emailInput = emailEl ? emailEl.value.trim().toLowerCase() : '';
       var errorEl = document.getElementById('email-error');
@@ -636,402 +636,239 @@ document.addEventListener('DOMContentLoaded', function() {
       if (!emailInput || !emailInput.includes('@')) {
         if (errorEl) errorEl.style.display = 'block';
         if (emailEl) emailEl.focus();
-        return actions.reject();
+        return null;
       }
-
       if (errorEl) errorEl.style.display = 'none';
 
-      // Synchronized InitiateCheckout & AddPaymentInfo Meta/TikTok Pixel & CAPI firing
-      var icEventId = createEventId('ic');
-      var apiEventId = createEventId('api');
-      var icValue = currentTotalAmount || 27.00;
-      var icCustomData = {
-        currency: 'USD',
-        value: icValue,
-        content_name: 'Portfolio Career School Offer',
-        content_ids: ['pcs-prompt-pack'],
-        content_type: 'product'
-      };
+      hashAndPersistEmail(emailInput);
+      return emailInput;
+    }
 
-      if (typeof fbq === 'function') {
-        fbq('track', 'InitiateCheckout', icCustomData, { eventID: icEventId });
-        fbq('track', 'AddPaymentInfo', icCustomData, { eventID: apiEventId });
-      }
-      if (typeof ttq === 'object' && typeof ttq.track === 'function') {
-        ttq.track('InitiateCheckout', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: icEventId });
-        ttq.track('AddPaymentInfo', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: apiEventId });
-      }
-      if (typeof gtag === 'function') {
-        gtag('event', 'add_payment_info', getGA4CartPayload());
-      }
-      sendCAPIEvent('InitiateCheckout', icEventId, icCustomData, emailInput);
-      sendCAPIEvent('AddPaymentInfo', apiEventId, icCustomData, emailInput);
-
-      return actions.resolve();
-    },
-
-    createOrder: function(data, actions) {
+    // Server Order Creator (v6 required return shape: { orderId: data.id })
+    async function handleCreateOrder() {
       var b1 = !!(document.getElementById('bump1-check') || {}).checked;
       var b2 = !!(document.getElementById('bump2-check') || {}).checked;
       var selectedAmount = (27 + (b1 ? 17 : 0) + (b2 ? 12 : 0)).toFixed(2);
 
-      return fetch('/api/create-order', {
+      const res = await fetch('/api/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bump1: b1, bump2: b2, amount: selectedAmount })
-      })
-      .then(function(res) {
-        if (!res.ok) throw new Error('Create order request failed with status ' + res.status);
-        return res.json();
-      })
-      .then(function(order) {
-        if (!order || !order.id) throw new Error('PayPal order ID missing in response');
-        return order.id;
-      })
-      // FIX: Catch so PayPal SDK gets a rejection signal and can show its own error UI
-      .catch(function(err) {
-        console.error('createOrder failed:', err);
-        return actions.reject();
       });
-    },
+      if (!res.ok) throw new Error('Create order request failed with status ' + res.status);
+      const data = await res.json();
+      if (!data || !data.id) throw new Error('PayPal order ID missing in response');
+      return { orderId: data.id };
+    }
 
-    onApprove: function(data, actions) {
-      var emailEl = document.getElementById('customer-email');
-      var customerEmail = emailEl ? emailEl.value.trim().toLowerCase() : '';
-
-      // Idempotency check: Guard against double-fires from multi-clicks or duplicate SDK events
+    // Order Capture & Telemetry Dispatch
+    async function handleOrderCapture(orderID, customerEmail) {
       var isAlreadyProcessed = false;
       try {
-        isAlreadyProcessed = sessionStorage.getItem('pcs_purchase_processed_' + data.orderID) === 'true';
-      } catch(e) { /* storage disabled */ }
+        isAlreadyProcessed = sessionStorage.getItem('pcs_purchase_processed_' + orderID) === 'true';
+      } catch(e) {}
 
       if (window.isBasePurchaseProcessed || isAlreadyProcessed) {
-        console.warn('Purchase already processed for order:', data.orderID);
         window.location.href = '/upsell.html';
-        return Promise.resolve();
+        return;
       }
       window.isBasePurchaseProcessed = true;
       try {
-        sessionStorage.setItem('pcs_purchase_processed_' + data.orderID, 'true');
-        sessionStorage.setItem('pcs_base_order_id', data.orderID);
+        sessionStorage.setItem('pcs_purchase_processed_' + orderID, 'true');
+        sessionStorage.setItem('pcs_base_order_id', orderID);
         if (customerEmail) sessionStorage.setItem('pcs_customer_email', customerEmail);
-      } catch(e) { /* storage disabled */ }
+      } catch(e) {}
 
       hashAndPersistEmail(customerEmail);
 
-      return fetch('/api/capture-order', {
+      const res = await fetch('/api/capture-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orderID: data.orderID,
+          orderID: orderID,
           email: customerEmail,
           externalId: getOrCreateExternalId(),
           test_event_code: getTestEventCode()
         })
-      })
-      .then(function(res) {
-        if (!res.ok) throw new Error('Capture order returned status ' + res.status);
-        return res.json();
-      })
-      .then(function(details) {
-        // FIX: Null guard on details before any property access
-        if (!details) {
-          console.error('Capture order returned null response');
-          alert('Payment could not be verified. Please contact support.');
-          return;
-        }
+      });
+      if (!res.ok) throw new Error('Capture order returned status ' + res.status);
+      const details = await res.json();
 
-        // 1. Handle Card / Bank Declines
-        var errorDetail = details.details ? details.details[0] : null;
-        if (errorDetail && errorDetail.issue === 'INSTRUMENT_DECLINED') {
-          window.isBasePurchaseProcessed = false;
-          return actions.restart();
-        }
+      if (!details) {
+        alert('Payment could not be verified. Please contact support.');
+        return;
+      }
 
-        // 2. Handle Other Errors
-        if (details.error || errorDetail) {
-          window.isBasePurchaseProcessed = false;
-          alert('Payment could not be processed. Please try a different payment method.');
-          return;
-        }
+      if (details.status === 'COMPLETED') {
+        var capturedValue = details.value || currentTotalAmount || 27.00;
+        var purEventId = orderID || createEventId('pur');
+        var purCustomData = {
+          currency: 'USD',
+          value: capturedValue,
+          content_name: 'Portfolio Career School Offer',
+          content_ids: ['pcs-prompt-pack'],
+          content_type: 'product'
+        };
 
-        // 3. SUCCESS path
-        if (details.status === 'COMPLETED') {
-          var capturedValue = details.value || currentTotalAmount || 27.00;
-          var purEventId = data.orderID || createEventId('pur');
-          var purCustomData = {
+        if (typeof fbq === 'function') {
+          fbq('track', 'Purchase', purCustomData, { eventID: purEventId });
+        }
+        if (typeof ttq === 'object' && typeof ttq.track === 'function') {
+          ttq.track('CompletePayment', { value: capturedValue, currency: 'USD', content_id: 'pcs_prompt_pack' }, { event_id: purEventId });
+        }
+        if (typeof gtag === 'function') {
+          var ga4Cart = getGA4CartPayload();
+          gtag('event', 'purchase', {
+            transaction_id: orderID,
             currency: 'USD',
-            value: capturedValue,
+            value: ga4Cart.value,
+            items: ga4Cart.items
+          });
+        }
+
+        window.dataLayer = window.dataLayer || [];
+        window.dataLayer.push({
+          'event': 'purchase_funnel_completed',
+          'transactionId': purEventId,
+          'value': capturedValue,
+          'currency': 'USD'
+        });
+
+        window.location.href = '/upsell.html';
+      } else {
+        alert('Payment could not be verified. Please try again.');
+      }
+    }
+
+    // 1. Render PayPal / Venmo Buttons if eligible
+    if (paymentMethods.isEligible("paypal") || paymentMethods.isEligible("venmo")) {
+      const buttonConfig = {
+        style: { layout: 'vertical', color: 'gold', shape: 'rect', label: 'paypal' },
+        onClick: function(data, actions) {
+          const customerEmail = validateAndPersistCustomerEmail();
+          if (!customerEmail) return actions ? actions.reject() : false;
+
+          var icEventId = createEventId('ic');
+          var apiEventId = createEventId('api');
+          var icValue = currentTotalAmount || 27.00;
+          var icCustomData = {
+            currency: 'USD',
+            value: icValue,
             content_name: 'Portfolio Career School Offer',
             content_ids: ['pcs-prompt-pack'],
             content_type: 'product'
           };
 
-          // Client Browser Meta & TikTok Pixel tracking (Server S2S CAPI is dispatched by /api/capture-order.js)
           if (typeof fbq === 'function') {
-            fbq('track', 'Purchase', purCustomData, { eventID: purEventId });
+            fbq('track', 'InitiateCheckout', icCustomData, { eventID: icEventId });
+            fbq('track', 'AddPaymentInfo', icCustomData, { eventID: apiEventId });
           }
           if (typeof ttq === 'object' && typeof ttq.track === 'function') {
-            ttq.track('CompletePayment', { value: capturedValue, currency: 'USD', content_id: 'pcs_prompt_pack' }, { event_id: purEventId });
+            ttq.track('InitiateCheckout', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: icEventId });
+            ttq.track('AddPaymentInfo', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: apiEventId });
           }
           if (typeof gtag === 'function') {
-            var ga4Cart = getGA4CartPayload();
-            gtag('event', 'purchase', {
-              transaction_id: data.orderID,
-              currency: 'USD',
-              value: ga4Cart.value,
-              items: ga4Cart.items
-            });
+            gtag('event', 'add_payment_info', getGA4CartPayload());
           }
+          sendCAPIEvent('InitiateCheckout', icEventId, icCustomData, customerEmail);
+          sendCAPIEvent('AddPaymentInfo', apiEventId, icCustomData, customerEmail);
 
-          window.dataLayer = window.dataLayer || [];
-          window.dataLayer.push({
-            'event': 'purchase_funnel_completed',
-            'transactionId': purEventId,
-            'value': capturedValue,
-            'currency': 'USD'
-          });
-
-          window.location.href = '/upsell.html';
+          return actions ? actions.resolve() : true;
+        },
+        createOrder: async function() {
+          return await handleCreateOrder();
+        },
+        onApprove: async function(data) {
+          const emailEl = document.getElementById('customer-email');
+          const customerEmail = emailEl ? emailEl.value.trim().toLowerCase() : '';
+          const orderID = data.orderID || data.orderId;
+          await handleOrderCapture(orderID, customerEmail);
         }
-      })
-      .catch(function(err) {
-        window.isBasePurchaseProcessed = false;
-        console.error('onApprove capture error:', err);
-        alert('We received your payment but had trouble verifying it. Please contact support with your PayPal receipt.');
-      });
-    },
+      };
 
-    onError: function(err) {
-      console.error('PayPal SDK Error:', err);
-      alert('Transaction verification failed. Please try again or use an alternative card.');
-    }
-
-  }).render('#paypal-button-container');
-
-  // ---------- STANDALONE APPLE PAY & GOOGLE PAY BUTTONS VIA PAYPAL SDK ----------
-  (function initStandalonePayButtons() {
-    // 1. Apple Pay Integration Setup
-    if (typeof paypal !== 'undefined' && paypal.Applepay && typeof window.ApplePaySession !== 'undefined' && ApplePaySession.canMakePayments()) {
-      paypal.Applepay().config().then(function(applepayConfig) {
-        if (applepayConfig && applepayConfig.isEligible) {
-          var appleContainer = document.getElementById('apple-pay-container');
-          if (appleContainer) {
-            appleContainer.innerHTML = '<apple-pay-button id="apple-pay-btn" buttonstyle="black" type="buy" locale="en-US" style="width: 100%; height: 48px; min-height: 48px; border-radius: 4px; cursor: pointer; display: block;"></apple-pay-button>';
-            var applePayBtn = document.getElementById('apple-pay-btn');
-            if (applePayBtn) {
-              applePayBtn.addEventListener('click', function() {
-                var emailEl = document.getElementById('customer-email');
-                var emailInput = emailEl ? emailEl.value.trim().toLowerCase() : '';
-                var errorEl = document.getElementById('email-error');
-
-                if (!emailInput || !emailInput.includes('@')) {
-                  if (errorEl) errorEl.style.display = 'block';
-                  if (emailEl) emailEl.focus();
-                  return;
-                }
-                if (errorEl) errorEl.style.display = 'none';
-
-                hashAndPersistEmail(emailInput);
-
-                var b1 = !!(document.getElementById('bump1-check') || {}).checked;
-                var b2 = !!(document.getElementById('bump2-check') || {}).checked;
-                var selectedAmount = (27 + (b1 ? 17 : 0) + (b2 ? 12 : 0)).toFixed(2);
-
-                var paymentRequest = {
-                  countryCode: applepayConfig.countryCode || 'US',
-                  currencyCode: 'USD',
-                  merchantCapabilities: applepayConfig.merchantCapabilities || ['supports3DS'],
-                  supportedNetworks: applepayConfig.supportedNetworks || ['visa', 'masterCard', 'amex', 'discover'],
-                  total: {
-                    label: 'Portfolio Career Prompt Pack',
-                    type: 'final',
-                    amount: selectedAmount
-                  }
-                };
-
-                try {
-                  var session = new ApplePaySession(4, paymentRequest);
-
-                  session.onvalidatemerchant = function(event) {
-                    paypal.Applepay().validateMerchant({
-                      validationUrl: event.validationURL,
-                      displayName: 'Portfolio Career School'
-                    }).then(function(validateResult) {
-                      session.completeMerchantValidation(validateResult.merchantSession);
-                    }).catch(function(err) {
-                      console.error('Apple Pay merchant validation error:', err);
-                      session.abort();
-                    });
-                  };
-
-                  session.onpaymentauthorized = function(event) {
-                    fetch('/api/create-order', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ bump1: b1, bump2: b2, amount: selectedAmount })
-                    })
-                    .then(function(res) { return res.json(); })
-                    .then(function(order) {
-                      if (!order || !order.id) throw new Error('Order creation failed');
-                      return paypal.Applepay().confirmOrder({
-                        orderId: order.id,
-                        token: event.payment.token,
-                        billingContact: event.payment.billingContact,
-                        shippingContact: event.payment.shippingContact
-                      }).then(function() {
-                        session.completePayment(ApplePaySession.STATUS_SUCCESS);
-                        return fetch('/api/capture-order', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            orderID: order.id,
-                            email: emailInput,
-                            externalId: getOrCreateExternalId(),
-                            test_event_code: getTestEventCode()
-                          })
-                        });
-                      });
-                    })
-                    .then(function(res) { return res.json(); })
-                    .then(function(details) {
-                      if (details && details.status === 'COMPLETED') {
-                        window.location.href = '/upsell.html';
-                      } else {
-                        alert('Payment could not be verified. Please contact support.');
-                      }
-                    })
-                    .catch(function(err) {
-                      console.error('Apple Pay authorization error:', err);
-                      session.completePayment(ApplePaySession.STATUS_FAILURE);
-                    });
-                  };
-
-                  session.begin();
-                } catch(e) {
-                  console.error('ApplePaySession launch error:', e);
-                }
-              });
-            }
+      if (typeof sdkInstance.Buttons === 'function') {
+        sdkInstance.Buttons(buttonConfig).render('#paypal-button-container');
+      } else if (typeof window.paypal.Buttons === 'function') {
+        window.paypal.Buttons({
+          ...buttonConfig,
+          createOrder: async function(data, actions) {
+            const orderRes = await handleCreateOrder();
+            return orderRes.orderId;
           }
-        }
-      }).catch(function(err) {
-        console.warn('Apple Pay config check error (non-fatal):', err);
-      });
-    }
-
-    // 2. Google Pay Integration Setup
-    function setupGooglePay() {
-      if (typeof paypal === 'undefined' || !paypal.Googlepay || typeof google === 'undefined' || !google.payments || !google.payments.api) {
-        return;
+        }).render('#paypal-button-container');
       }
-
-      paypal.Googlepay().config().then(function(googlepayConfig) {
-        if (!googlepayConfig || !googlepayConfig.isEligible) return;
-
-        var paymentsClient = new google.payments.api.PaymentsClient({
-          environment: googlepayConfig.environment || 'TEST'
-        });
-
-        var isReadyToPayRequest = Object.assign(
-          {},
-          googlepayConfig.allowedPaymentMethods && googlepayConfig.allowedPaymentMethods.length
-            ? { allowedPaymentMethods: googlepayConfig.allowedPaymentMethods }
-            : {}
-        );
-
-        paymentsClient.isReadyToPay(isReadyToPayRequest).then(function(response) {
-          if (response.result) {
-            var googleContainer = document.getElementById('google-pay-container');
-            if (!googleContainer) return;
-
-            var button = paymentsClient.createButton({
-              buttonColor: 'default',
-              buttonType: 'buy',
-              buttonSizeMode: 'fill',
-              onClick: function() {
-                var emailEl = document.getElementById('customer-email');
-                var emailInput = emailEl ? emailEl.value.trim().toLowerCase() : '';
-                var errorEl = document.getElementById('email-error');
-
-                if (!emailInput || !emailInput.includes('@')) {
-                  if (errorEl) errorEl.style.display = 'block';
-                  if (emailEl) emailEl.focus();
-                  return;
-                }
-                if (errorEl) errorEl.style.display = 'none';
-
-                hashAndPersistEmail(emailInput);
-
-                var b1 = !!(document.getElementById('bump1-check') || {}).checked;
-                var b2 = !!(document.getElementById('bump2-check') || {}).checked;
-                var selectedAmount = (27 + (b1 ? 17 : 0) + (b2 ? 12 : 0)).toFixed(2);
-
-                fetch('/api/create-order', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ bump1: b1, bump2: b2, amount: selectedAmount })
-                })
-                .then(function(res) { return res.json(); })
-                .then(function(order) {
-                  if (!order || !order.id) throw new Error('Order creation failed');
-
-                  return paypal.Googlepay().initiatePayerConfig({ orderId: order.id }).then(function(payerConfig) {
-                    var paymentDataRequest = Object.assign({}, payerConfig, {
-                      transactionInfo: {
-                        currencyCode: 'USD',
-                        totalPriceStatus: 'FINAL',
-                        totalPrice: selectedAmount
-                      }
-                    });
-
-                    return paymentsClient.loadPaymentData(paymentDataRequest).then(function(paymentData) {
-                      return paypal.Googlepay().confirmOrder({
-                        orderId: order.id,
-                        paymentMethodData: paymentData.paymentMethodData
-                      });
-                    }).then(function(confirmResult) {
-                      return fetch('/api/capture-order', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          orderID: order.id,
-                          email: emailInput,
-                          externalId: getOrCreateExternalId(),
-                          test_event_code: getTestEventCode()
-                        })
-                      });
-                    });
-                  });
-                })
-                .then(function(res) { return res.json(); })
-                .then(function(details) {
-                  if (details && details.status === 'COMPLETED') {
-                    window.location.href = '/upsell.html';
-                  } else {
-                    alert('Payment could not be verified.');
-                  }
-                })
-                .catch(function(err) {
-                  console.error('Google Pay processing error:', err);
-                });
-              }
-            });
-
-            googleContainer.appendChild(button);
-          }
-        }).catch(function(err) {
-          console.warn('Google Pay isReadyToPay error (non-fatal):', err);
-        });
-      }).catch(function(err) {
-        console.warn('Google Pay config error (non-fatal):', err);
-      });
     }
 
-    if (typeof google !== 'undefined' && google.payments && google.payments.api) {
-      setupGooglePay();
-    } else {
-      window.addEventListener('load', setupGooglePay);
+    // 2. Conditionally Mount Apple Pay Component if eligible
+    if (paymentMethods.isEligible("applepay")) {
+      const appleContainer = document.getElementById('apple-pay-container');
+      if (appleContainer) {
+        appleContainer.style.display = 'block';
+        if (typeof sdkInstance.createApplePayButton === 'function') {
+          sdkInstance.createApplePayButton({
+            container: '#apple-pay-container',
+            onClick: async () => {
+              const email = validateAndPersistCustomerEmail();
+              return !!email;
+            },
+            createOrder: async () => await handleCreateOrder(),
+            onApprove: async (data) => {
+              const emailEl = document.getElementById('customer-email');
+              const customerEmail = emailEl ? emailEl.value.trim().toLowerCase() : '';
+              await handleOrderCapture(data.orderID || data.orderId, customerEmail);
+            }
+          });
+        } else {
+          const appleBtn = document.createElement('applepay-payment-button');
+          appleBtn.addEventListener('click', async () => {
+            const email = validateAndPersistCustomerEmail();
+            if (!email) return;
+            const orderObj = await handleCreateOrder();
+            if (orderObj && orderObj.orderId) {
+              await handleOrderCapture(orderObj.orderId, email);
+            }
+          });
+          appleContainer.appendChild(appleBtn);
+        }
+      }
     }
-  })();
+
+    // 3. Conditionally Mount Google Pay Component if eligible
+    if (paymentMethods.isEligible("googlepay")) {
+      const googleContainer = document.getElementById('google-pay-container');
+      if (googleContainer) {
+        googleContainer.style.display = 'block';
+        if (typeof sdkInstance.createGooglePayButton === 'function') {
+          sdkInstance.createGooglePayButton({
+            container: '#google-pay-container',
+            onClick: async () => {
+              const email = validateAndPersistCustomerEmail();
+              return !!email;
+            },
+            createOrder: async () => await handleCreateOrder(),
+            onApprove: async (data) => {
+              const emailEl = document.getElementById('customer-email');
+              const customerEmail = emailEl ? emailEl.value.trim().toLowerCase() : '';
+              await handleOrderCapture(data.orderID || data.orderId, customerEmail);
+            }
+          });
+        } else {
+          const googleBtn = document.createElement('googlepay-payment-button');
+          googleBtn.addEventListener('click', async () => {
+            const email = validateAndPersistCustomerEmail();
+            if (!email) return;
+            const orderObj = await handleCreateOrder();
+            if (orderObj && orderObj.orderId) {
+              await handleOrderCapture(orderObj.orderId, email);
+            }
+          });
+          googleContainer.appendChild(googleBtn);
+        }
+      }
+    }
+
+  } catch (err) {
+    console.error('PayPal SDK v6 initialization failed:', err);
+    container.innerHTML = '<p style="color:#cc0000; font-size:14px; text-align:center;">Payment system failed to initialize. Please refresh the page.</p>';
+  }
 });
