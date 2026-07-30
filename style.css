@@ -542,12 +542,15 @@ section{ padding: 56px 0; }
 }
 .bump-body p{ font-size: 13.5px; margin-top: 4px; color: var(--ink-soft); }
 
-.checkout-btn-wrap{ margin-top: 26px; }
+.checkout-btn-wrap {
+  margin-top: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
 #apple-pay-container:empty,
 #google-pay-container:empty,
-#apple-pay-container:has([hidden]),
-#google-pay-container:has([hidden]),
 [hidden] {
   display: none !important;
   margin: 0 !important;

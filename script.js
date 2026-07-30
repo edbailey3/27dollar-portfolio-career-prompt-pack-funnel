@@ -858,9 +858,9 @@ document.addEventListener('DOMContentLoaded', async function() {
       }
     }
 
-    // 6. Google Pay (Check SDK eligibility OR Android/Chrome device readiness)
+    // 6. Google Pay (Check SDK eligibility OR Android device readiness)
     const isGooglePayEligible = paymentMethods.isEligible("googlepay") || 
-      (typeof navigator !== 'undefined' && /Android|Chrome/i.test(navigator.userAgent));
+      (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent));
 
     if (isGooglePayEligible) {
       try {
