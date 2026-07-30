@@ -794,16 +794,13 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
 
     // 3. Debit / Credit Cards
-    if (paymentMethods.isEligible("card") || paymentMethods.isEligible("paypal-guest-payments") || paymentMethods.isEligible("paypal")) {
+    if (paymentMethods.isEligible("card")) {
       const cardSession = sdkInstance.createPayPalGuestOneTimePaymentSession ? sdkInstance.createPayPalGuestOneTimePaymentSession({ onApprove: handleOrderApprove }) : sdkInstance.createPayPalOneTimePaymentSession({ onApprove: handleOrderApprove });
       const cardBtn = document.getElementById('card-btn');
       if (cardBtn) {
         cardBtn.removeAttribute('hidden');
         cardBtn.style.display = 'block';
         cardBtn.session = cardSession;
-        if (!cardBtn.shadowRoot && !cardBtn.children.length) {
-          cardBtn.innerHTML = '<div style="width: 100%; height: 48px; background: #2c2e2f; color: #ffffff; border-radius: 4px; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">💳 Debit or Credit Card</div>';
-        }
         cardBtn.addEventListener('click', async () => {
           const order = validateAndPrepareOrder();
           if (order) await cardSession.start({ presentationMode: 'auto' }, order);
