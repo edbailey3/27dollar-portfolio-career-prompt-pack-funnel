@@ -544,6 +544,15 @@ section{ padding: 56px 0; }
 
 .checkout-btn-wrap{ margin-top: 26px; }
 
+#apple-pay-container:empty,
+#google-pay-container:empty,
+[hidden] {
+  display: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  height: 0 !important;
+}
+
 .trust-row{
   display:flex;
   gap: 18px;

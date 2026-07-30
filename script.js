@@ -636,61 +636,53 @@ document.addEventListener('DOMContentLoaded', async function() {
     function validateAndPrepareOrder() {
       const emailEl = document.getElementById('customer-email');
       const emailInput = emailEl ? emailEl.value.trim().toLowerCase() : '';
-      const errorEl = document.getElementById('email-error');
 
-      if (!emailInput || !emailInput.includes('@')) {
-        if (errorEl) errorEl.style.display = 'block';
-        if (emailEl) emailEl.focus();
-        return null;
-      }
-      if (errorEl) errorEl.style.display = 'none';
+      // If email exists, persist and send telemetry
+      if (emailInput && emailInput.includes('@')) {
+        hashAndPersistEmail(emailInput);
+        var icEventId = createEventId('ic');
+        var apiEventId = createEventId('api');
+        var icValue = currentTotalAmount || 27.00;
+        var icCustomData = {
+          currency: 'USD',
+          value: icValue,
+          content_name: 'Portfolio Career School Offer',
+          content_ids: ['pcs-prompt-pack'],
+          content_type: 'product'
+        };
 
-      hashAndPersistEmail(emailInput);
-
-      var icEventId = createEventId('ic');
-      var apiEventId = createEventId('api');
-      var icValue = currentTotalAmount || 27.00;
-      var icCustomData = {
-        currency: 'USD',
-        value: icValue,
-        content_name: 'Portfolio Career School Offer',
-        content_ids: ['pcs-prompt-pack'],
-        content_type: 'product'
-      };
-
-      if (typeof fbq === 'function') {
-        fbq('track', 'InitiateCheckout', icCustomData, { eventID: icEventId });
-        fbq('track', 'AddPaymentInfo', icCustomData, { eventID: apiEventId });
+        if (typeof fbq === 'function') {
+          fbq('track', 'InitiateCheckout', icCustomData, { eventID: icEventId });
+          fbq('track', 'AddPaymentInfo', icCustomData, { eventID: apiEventId });
+        }
+        if (typeof ttq === 'object' && typeof ttq.track === 'function') {
+          ttq.track('InitiateCheckout', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: icEventId });
+          ttq.track('AddPaymentInfo', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: apiEventId });
+        }
+        if (typeof gtag === 'function') {
+          gtag('event', 'add_payment_info', getGA4CartPayload());
+        }
+        sendCAPIEvent('InitiateCheckout', icEventId, icCustomData, emailInput);
+        sendCAPIEvent('AddPaymentInfo', apiEventId, icCustomData, emailInput);
       }
-      if (typeof ttq === 'object' && typeof ttq.track === 'function') {
-        ttq.track('InitiateCheckout', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: icEventId });
-        ttq.track('AddPaymentInfo', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: apiEventId });
-      }
-      if (typeof gtag === 'function') {
-        gtag('event', 'add_payment_info', getGA4CartPayload());
-      }
-      sendCAPIEvent('InitiateCheckout', icEventId, icCustomData, emailInput);
-      sendCAPIEvent('AddPaymentInfo', apiEventId, icCustomData, emailInput);
 
       const b1 = !!(document.getElementById('bump1-check') || {}).checked;
       const b2 = !!(document.getElementById('bump2-check') || {}).checked;
       const selectedAmount = (27 + (b1 ? 17 : 0) + (b2 ? 12 : 0)).toFixed(2);
 
-      const createOrderPromise = fetch('/api/create-order', {
+      return fetch('/api/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bump1: b1, bump2: b2, amount: selectedAmount })
       })
       .then(res => res.json())
       .then(order => ({ orderId: order.id }));
-
-      return createOrderPromise;
     }
 
     // Shared order approval & capture handler
     async function handleOrderApprove(data) {
       const emailEl = document.getElementById('customer-email');
-      const customerEmail = emailEl ? emailEl.value.trim().toLowerCase() : '';
+      let customerEmail = emailEl ? emailEl.value.trim().toLowerCase() : '';
       const orderID = data.orderId || data.orderID;
 
       var isAlreadyProcessed = false;
@@ -706,10 +698,7 @@ document.addEventListener('DOMContentLoaded', async function() {
       try {
         sessionStorage.setItem('pcs_purchase_processed_' + orderID, 'true');
         sessionStorage.setItem('pcs_base_order_id', orderID);
-        if (customerEmail) sessionStorage.setItem('pcs_customer_email', customerEmail);
       } catch(e) {}
-
-      hashAndPersistEmail(customerEmail);
 
       const res = await fetch('/api/capture-order', {
         method: 'POST',
@@ -722,7 +711,16 @@ document.addEventListener('DOMContentLoaded', async function() {
         })
       });
       const details = await res.json();
+
       if (details && details.status === 'COMPLETED') {
+        const finalEmail = customerEmail || (details.payer && details.payer.email_address) || '';
+        if (finalEmail) {
+          hashAndPersistEmail(finalEmail);
+          try {
+            sessionStorage.setItem('pcs_customer_email', finalEmail);
+          } catch(e) {}
+        }
+
         var capturedValue = details.value || currentTotalAmount || 27.00;
         var purEventId = orderID || createEventId('pur');
         var purCustomData = {
@@ -823,6 +821,21 @@ document.addEventListener('DOMContentLoaded', async function() {
       }
     }
 
+    // Helper to insert wallet container dynamically before PayPal button
+    function getOrCreateWalletContainer(id) {
+      let container = document.getElementById(id);
+      if (!container) {
+        container = document.createElement('div');
+        container.id = id;
+        container.style.cssText = 'width: 100%; margin-bottom: 10px;';
+        const paypalBtn = document.getElementById('paypal-btn');
+        if (paypalBtn && paypalBtn.parentNode) {
+          paypalBtn.parentNode.insertBefore(container, paypalBtn);
+        }
+      }
+      return container;
+    }
+
     // 5. Apple Pay (Check SDK eligibility OR Safari ApplePaySession readiness)
     const isApplePayEligible = paymentMethods.isEligible("applepay") || 
       (typeof window.ApplePaySession !== 'undefined' && window.ApplePaySession.canMakePayments());
@@ -836,9 +849,9 @@ document.addEventListener('DOMContentLoaded', async function() {
             onCancel: (data) => console.log('Apple Pay cancelled:', data),
             onError: (err) => console.error('Apple Pay error:', err)
           });
-          const appleContainer = document.getElementById('apple-pay-container');
+          const appleContainer = getOrCreateWalletContainer('apple-pay-container');
           if (appleContainer) {
-            appleContainer.innerHTML = '<applepay-button id="apple-pay-btn" buttonstyle="black" type="buy" locale="en-US" style="width: 100%; height: 48px; display: block; cursor: pointer; margin-bottom: 10px;"></applepay-button>';
+            appleContainer.innerHTML = '<applepay-button id="apple-pay-btn" buttonstyle="black" type="buy" locale="en-US" style="width: 100%; height: 48px; display: block; cursor: pointer;"></applepay-button>';
             const appleBtn = document.getElementById('apple-pay-btn');
             if (appleBtn) {
               appleBtn.session = applePaySession;
@@ -875,9 +888,9 @@ document.addEventListener('DOMContentLoaded', async function() {
             onCancel: (data) => console.log('Google Pay cancelled:', data),
             onError: (err) => console.error('Google Pay error:', err)
           });
-          const googleContainer = document.getElementById('google-pay-container');
+          const googleContainer = getOrCreateWalletContainer('google-pay-container');
           if (googleContainer) {
-            googleContainer.innerHTML = '<googlepay-button id="google-pay-btn" buttonstyle="black" type="buy" locale="en-US" style="width: 100%; height: 48px; display: block; cursor: pointer; margin-bottom: 10px;"></googlepay-button>';
+            googleContainer.innerHTML = '<googlepay-button id="google-pay-btn" buttonstyle="black" type="buy" locale="en-US" style="width: 100%; height: 48px; display: block; cursor: pointer;"></googlepay-button>';
             const googleBtn = document.getElementById('google-pay-btn');
             if (googleBtn) {
               googleBtn.session = googlePaySession;
