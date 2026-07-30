@@ -684,7 +684,7 @@ document.addEventListener('DOMContentLoaded', async function() {
       .then(res => res.json())
       .then(order => ({ orderId: order.id }));
 
-      return { emailInput, createOrderPromise };
+      return createOrderPromise;
     }
 
     // Shared order approval & capture handler
@@ -763,137 +763,99 @@ document.addEventListener('DOMContentLoaded', async function() {
       }
     }
 
-    // 1. STANDARD PAYPAL BUTTON
+    // 1. PayPal
     if (paymentMethods.isEligible("paypal")) {
-      const paypalSession = sdkInstance.createPayPalOneTimePaymentSession({
-        onApprove: handleOrderApprove,
-        onCancel: (data) => console.log('PayPal cancelled:', data),
-        onError: (err) => console.error('PayPal error:', err)
-      });
+      const paypalSession = sdkInstance.createPayPalOneTimePaymentSession({ onApprove: handleOrderApprove });
       const paypalBtn = document.getElementById('paypal-btn');
       if (paypalBtn) {
         paypalBtn.removeAttribute('hidden');
+        paypalBtn.style.display = 'block';
+        paypalBtn.session = paypalSession;
         paypalBtn.addEventListener('click', async () => {
-          const prep = validateAndPrepareOrder();
-          if (prep && prep.createOrderPromise) {
-            await paypalSession.start({ presentationMode: 'auto' }, prep.createOrderPromise);
-          }
+          const order = validateAndPrepareOrder();
+          if (order) await paypalSession.start({ presentationMode: 'auto' }, order);
         });
       }
     }
 
-    // 2. PAY LATER BUTTON
-    if (paymentMethods.isEligible("paylater") || paymentMethods.isEligible("pay_later") || paymentMethods.isEligible("paypal")) {
-      const createPayLaterSession = sdkInstance.createPayLaterOneTimePaymentSession || sdkInstance.createPayPalPayLaterOneTimePaymentSession || sdkInstance.createPayPalOneTimePaymentSession;
-      if (typeof createPayLaterSession === 'function') {
-        const paylaterSession = createPayLaterSession.call(sdkInstance, {
-          onApprove: handleOrderApprove,
-          onCancel: (data) => console.log('Pay Later cancelled:', data),
-          onError: (err) => console.error('Pay Later error:', err)
+    // 2. Pay Later
+    if (paymentMethods.isEligible("paylater") || paymentMethods.isEligible("paypal")) {
+      const payLaterSession = sdkInstance.createPayLaterOneTimePaymentSession ? sdkInstance.createPayLaterOneTimePaymentSession({ onApprove: handleOrderApprove }) : sdkInstance.createPayPalOneTimePaymentSession({ onApprove: handleOrderApprove });
+      const payLaterBtn = document.getElementById('paylater-btn');
+      if (payLaterBtn) {
+        payLaterBtn.removeAttribute('hidden');
+        payLaterBtn.style.display = 'block';
+        payLaterBtn.session = payLaterSession;
+        payLaterBtn.addEventListener('click', async () => {
+          const order = validateAndPrepareOrder();
+          if (order) await payLaterSession.start({ presentationMode: 'auto' }, order);
         });
-        const paylaterBtn = document.getElementById('paylater-btn');
-        if (paylaterBtn) {
-          paylaterBtn.removeAttribute('hidden');
-          paylaterBtn.addEventListener('click', async () => {
-            const prep = validateAndPrepareOrder();
-            if (prep && prep.createOrderPromise) {
-              await paylaterSession.start({ presentationMode: 'auto' }, prep.createOrderPromise);
-            }
-          });
-        }
       }
     }
 
-    // 3. VENMO BUTTON
-    if (paymentMethods.isEligible("venmo")) {
-      const createVenmoSession = sdkInstance.createVenmoOneTimePaymentSession || sdkInstance.createPayPalVenmoOneTimePaymentSession || sdkInstance.createPayPalOneTimePaymentSession;
-      if (typeof createVenmoSession === 'function') {
-        const venmoSession = createVenmoSession.call(sdkInstance, {
-          onApprove: handleOrderApprove,
-          onCancel: (data) => console.log('Venmo cancelled:', data),
-          onError: (err) => console.error('Venmo error:', err)
-        });
-        const venmoBtn = document.getElementById('venmo-btn');
-        if (venmoBtn) {
-          venmoBtn.removeAttribute('hidden');
-          venmoBtn.addEventListener('click', async () => {
-            const prep = validateAndPrepareOrder();
-            if (prep && prep.createOrderPromise) {
-              await venmoSession.start({ presentationMode: 'auto' }, prep.createOrderPromise);
-            }
-          });
-        }
-      }
-    }
-
-    // 4. CREDIT & DEBIT CARD (GUEST PAYMENTS) BUTTON
+    // 3. Debit / Credit Cards
     if (paymentMethods.isEligible("card") || paymentMethods.isEligible("paypal-guest-payments") || paymentMethods.isEligible("paypal")) {
-      const createGuestSession = sdkInstance.createPayPalGuestOneTimePaymentSession || sdkInstance.createGuestOneTimePaymentSession || sdkInstance.createPayPalOneTimePaymentSession;
-      if (typeof createGuestSession === 'function') {
-        const guestSession = createGuestSession.call(sdkInstance, {
-          onApprove: handleOrderApprove,
-          onCancel: (data) => console.log('Card payment cancelled:', data),
-          onError: (err) => console.error('Card payment error:', err)
+      const cardSession = sdkInstance.createPayPalGuestOneTimePaymentSession ? sdkInstance.createPayPalGuestOneTimePaymentSession({ onApprove: handleOrderApprove }) : sdkInstance.createPayPalOneTimePaymentSession({ onApprove: handleOrderApprove });
+      const cardBtn = document.getElementById('card-btn');
+      if (cardBtn) {
+        cardBtn.removeAttribute('hidden');
+        cardBtn.style.display = 'block';
+        cardBtn.session = cardSession;
+        if (!cardBtn.shadowRoot && !cardBtn.children.length) {
+          cardBtn.innerHTML = '<div style="width: 100%; height: 48px; background: #2c2e2f; color: #ffffff; border-radius: 4px; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">💳 Debit or Credit Card</div>';
+        }
+        cardBtn.addEventListener('click', async () => {
+          const order = validateAndPrepareOrder();
+          if (order) await cardSession.start({ presentationMode: 'auto' }, order);
         });
-        const cardBtn = document.getElementById('card-btn');
-        if (cardBtn) {
-          cardBtn.removeAttribute('hidden');
-          cardBtn.addEventListener('click', async () => {
-            const prep = validateAndPrepareOrder();
-            if (prep && prep.createOrderPromise) {
-              await guestSession.start({ presentationMode: 'auto' }, prep.createOrderPromise);
-            }
+      }
+    }
+
+    // 4. Venmo
+    if (paymentMethods.isEligible("venmo")) {
+      const venmoSession = sdkInstance.createVenmoOneTimePaymentSession ? sdkInstance.createVenmoOneTimePaymentSession({ onApprove: handleOrderApprove }) : sdkInstance.createPayPalOneTimePaymentSession({ onApprove: handleOrderApprove });
+      const venmoBtn = document.getElementById('venmo-btn');
+      if (venmoBtn) {
+        venmoBtn.removeAttribute('hidden');
+        venmoBtn.style.display = 'block';
+        venmoBtn.session = venmoSession;
+        venmoBtn.addEventListener('click', async () => {
+          const order = validateAndPrepareOrder();
+          if (order) await venmoSession.start({ presentationMode: 'auto' }, order);
+        });
+      }
+    }
+
+    // 5. Apple Pay
+    if (paymentMethods.isEligible("applepay")) {
+      const applePaySession = sdkInstance.createApplePayOneTimePaymentSession ? sdkInstance.createApplePayOneTimePaymentSession({ onApprove: handleOrderApprove }) : (sdkInstance.createApplePaySession ? sdkInstance.createApplePaySession({ onApprove: handleOrderApprove }) : null);
+      const appleContainer = document.getElementById('apple-pay-container');
+      if (appleContainer && applePaySession) {
+        appleContainer.innerHTML = '<applepay-button id="apple-pay-btn" buttonstyle="black" type="buy" locale="en-US" style="width: 100%; height: 48px; display: block; cursor: pointer;"></applepay-button>';
+        const appleBtn = document.getElementById('apple-pay-btn');
+        if (appleBtn) {
+          appleBtn.session = applePaySession;
+          appleBtn.addEventListener('click', async () => {
+            const order = validateAndPrepareOrder();
+            if (order) await applePaySession.start({ presentationMode: 'auto' }, order);
           });
         }
       }
     }
 
-    // 5. APPLE PAY BUTTON
-    if (paymentMethods.isEligible("applepay")) {
-      const createAppleSession = sdkInstance.createApplePayOneTimePaymentSession || sdkInstance.createApplePaySession;
-      if (typeof createAppleSession === 'function') {
-        const applePaySession = createAppleSession.call(sdkInstance, {
-          onApprove: handleOrderApprove,
-          onCancel: (data) => console.log('Apple Pay cancelled:', data),
-          onError: (err) => console.error('Apple Pay error:', err)
-        });
-        const appleContainer = document.getElementById('apple-pay-container');
-        if (appleContainer) {
-          appleContainer.innerHTML = '<applepay-button id="apple-pay-btn" buttonstyle="black" type="buy" locale="en-US" style="width: 100%; height: 48px; display: block; cursor: pointer;"></applepay-button>';
-          const appleBtn = document.getElementById('apple-pay-btn');
-          if (appleBtn) {
-            appleBtn.addEventListener('click', async () => {
-              const prep = validateAndPrepareOrder();
-              if (prep && prep.createOrderPromise) {
-                await applePaySession.start({ presentationMode: 'auto' }, prep.createOrderPromise);
-              }
-            });
-          }
-        }
-      }
-    }
-
-    // 6. GOOGLE PAY BUTTON
+    // 6. Google Pay
     if (paymentMethods.isEligible("googlepay")) {
-      const createGoogleSession = sdkInstance.createGooglePayOneTimePaymentSession || sdkInstance.createGooglePaySession;
-      if (typeof createGoogleSession === 'function') {
-        const googlePaySession = createGoogleSession.call(sdkInstance, {
-          onApprove: handleOrderApprove,
-          onCancel: (data) => console.log('Google Pay cancelled:', data),
-          onError: (err) => console.error('Google Pay error:', err)
-        });
-        const googleContainer = document.getElementById('google-pay-container');
-        if (googleContainer) {
-          googleContainer.innerHTML = '<googlepay-button id="google-pay-btn" buttonstyle="black" type="buy" locale="en-US" style="width: 100%; height: 48px; display: block; cursor: pointer;"></googlepay-button>';
-          const googleBtn = document.getElementById('google-pay-btn');
-          if (googleBtn) {
-            googleBtn.addEventListener('click', async () => {
-              const prep = validateAndPrepareOrder();
-              if (prep && prep.createOrderPromise) {
-                await googlePaySession.start({ presentationMode: 'auto' }, prep.createOrderPromise);
-              }
-            });
-          }
+      const googlePaySession = sdkInstance.createGooglePayOneTimePaymentSession ? sdkInstance.createGooglePayOneTimePaymentSession({ onApprove: handleOrderApprove }) : (sdkInstance.createGooglePaySession ? sdkInstance.createGooglePaySession({ onApprove: handleOrderApprove }) : null);
+      const googleContainer = document.getElementById('google-pay-container');
+      if (googleContainer && googlePaySession) {
+        googleContainer.innerHTML = '<googlepay-button id="google-pay-btn" buttonstyle="black" type="buy" locale="en-US" style="width: 100%; height: 48px; display: block; cursor: pointer;"></googlepay-button>';
+        const googleBtn = document.getElementById('google-pay-btn');
+        if (googleBtn) {
+          googleBtn.session = googlePaySession;
+          googleBtn.addEventListener('click', async () => {
+            const order = validateAndPrepareOrder();
+            if (order) await googlePaySession.start({ presentationMode: 'auto' }, order);
+          });
         }
       }
     }
