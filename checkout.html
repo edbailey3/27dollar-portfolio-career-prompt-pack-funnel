@@ -146,6 +146,8 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
       </div>
 
       <div class="checkout-btn-wrap" style="margin-top: 26px;">
+        <div id="apple-pay-container" style="margin-bottom: 12px;"></div>
+        <div id="google-pay-container" style="margin-bottom: 12px;"></div>
         <div id="paypal-button-container"></div>
       </div>
 
@@ -179,6 +181,8 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
   </div>
 </footer>
 
+<script src="https://applepay.cdn-apple.com/jsapi/v1/apple-pay-sdk.js"></script>
+<script async src="https://pay.google.com/gp/p/js/pay.js"></script>
 <script src="https://www.paypal.com/sdk/js?client-id=AZ1_0aTSSXkrHYWZbBAc9ZhXBvNL_EC6UPGqBAiCZYltK_-fS8EoZsKS6_XvNbtWDkAv8-yzQOvAmGkw&currency=USD&components=buttons,applepay,googlepay&enable-funding=venmo,paylater"></script>
 <script src="script.js" defer></script>
 <script>

@@ -808,4 +808,230 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
   }).render('#paypal-button-container');
+
+  // ---------- STANDALONE APPLE PAY & GOOGLE PAY BUTTONS VIA PAYPAL SDK ----------
+  (function initStandalonePayButtons() {
+    // 1. Apple Pay Integration Setup
+    if (typeof paypal !== 'undefined' && paypal.Applepay && typeof window.ApplePaySession !== 'undefined' && ApplePaySession.canMakePayments()) {
+      paypal.Applepay().config().then(function(applepayConfig) {
+        if (applepayConfig && applepayConfig.isEligible) {
+          var appleContainer = document.getElementById('apple-pay-container');
+          if (appleContainer) {
+            appleContainer.innerHTML = '<apple-pay-button id="apple-pay-btn" buttonstyle="black" type="buy" locale="en-US" style="width: 100%; height: 48px; min-height: 48px; border-radius: 4px; cursor: pointer; display: block;"></apple-pay-button>';
+            var applePayBtn = document.getElementById('apple-pay-btn');
+            if (applePayBtn) {
+              applePayBtn.addEventListener('click', function() {
+                var emailEl = document.getElementById('customer-email');
+                var emailInput = emailEl ? emailEl.value.trim().toLowerCase() : '';
+                var errorEl = document.getElementById('email-error');
+
+                if (!emailInput || !emailInput.includes('@')) {
+                  if (errorEl) errorEl.style.display = 'block';
+                  if (emailEl) emailEl.focus();
+                  return;
+                }
+                if (errorEl) errorEl.style.display = 'none';
+
+                hashAndPersistEmail(emailInput);
+
+                var b1 = !!(document.getElementById('bump1-check') || {}).checked;
+                var b2 = !!(document.getElementById('bump2-check') || {}).checked;
+                var selectedAmount = (27 + (b1 ? 17 : 0) + (b2 ? 12 : 0)).toFixed(2);
+
+                var paymentRequest = {
+                  countryCode: applepayConfig.countryCode || 'US',
+                  currencyCode: 'USD',
+                  merchantCapabilities: applepayConfig.merchantCapabilities || ['supports3DS'],
+                  supportedNetworks: applepayConfig.supportedNetworks || ['visa', 'masterCard', 'amex', 'discover'],
+                  total: {
+                    label: 'Portfolio Career Prompt Pack',
+                    type: 'final',
+                    amount: selectedAmount
+                  }
+                };
+
+                try {
+                  var session = new ApplePaySession(4, paymentRequest);
+
+                  session.onvalidatemerchant = function(event) {
+                    paypal.Applepay().validateMerchant({
+                      validationUrl: event.validationURL,
+                      displayName: 'Portfolio Career School'
+                    }).then(function(validateResult) {
+                      session.completeMerchantValidation(validateResult.merchantSession);
+                    }).catch(function(err) {
+                      console.error('Apple Pay merchant validation error:', err);
+                      session.abort();
+                    });
+                  };
+
+                  session.onpaymentauthorized = function(event) {
+                    fetch('/api/create-order', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ bump1: b1, bump2: b2, amount: selectedAmount })
+                    })
+                    .then(function(res) { return res.json(); })
+                    .then(function(order) {
+                      if (!order || !order.id) throw new Error('Order creation failed');
+                      return paypal.Applepay().confirmOrder({
+                        orderId: order.id,
+                        token: event.payment.token,
+                        billingContact: event.payment.billingContact,
+                        shippingContact: event.payment.shippingContact
+                      }).then(function() {
+                        session.completePayment(ApplePaySession.STATUS_SUCCESS);
+                        return fetch('/api/capture-order', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            orderID: order.id,
+                            email: emailInput,
+                            externalId: getOrCreateExternalId(),
+                            test_event_code: getTestEventCode()
+                          })
+                        });
+                      });
+                    })
+                    .then(function(res) { return res.json(); })
+                    .then(function(details) {
+                      if (details && details.status === 'COMPLETED') {
+                        window.location.href = '/upsell.html';
+                      } else {
+                        alert('Payment could not be verified. Please contact support.');
+                      }
+                    })
+                    .catch(function(err) {
+                      console.error('Apple Pay authorization error:', err);
+                      session.completePayment(ApplePaySession.STATUS_FAILURE);
+                    });
+                  };
+
+                  session.begin();
+                } catch(e) {
+                  console.error('ApplePaySession launch error:', e);
+                }
+              });
+            }
+          }
+        }
+      }).catch(function(err) {
+        console.warn('Apple Pay config check error (non-fatal):', err);
+      });
+    }
+
+    // 2. Google Pay Integration Setup
+    function setupGooglePay() {
+      if (typeof paypal === 'undefined' || !paypal.Googlepay || typeof google === 'undefined' || !google.payments || !google.payments.api) {
+        return;
+      }
+
+      paypal.Googlepay().config().then(function(googlepayConfig) {
+        if (!googlepayConfig || !googlepayConfig.isEligible) return;
+
+        var paymentsClient = new google.payments.api.PaymentsClient({
+          environment: googlepayConfig.environment || 'TEST'
+        });
+
+        var isReadyToPayRequest = Object.assign(
+          {},
+          googlepayConfig.allowedPaymentMethods && googlepayConfig.allowedPaymentMethods.length
+            ? { allowedPaymentMethods: googlepayConfig.allowedPaymentMethods }
+            : {}
+        );
+
+        paymentsClient.isReadyToPay(isReadyToPayRequest).then(function(response) {
+          if (response.result) {
+            var googleContainer = document.getElementById('google-pay-container');
+            if (!googleContainer) return;
+
+            var button = paymentsClient.createButton({
+              buttonColor: 'default',
+              buttonType: 'buy',
+              buttonSizeMode: 'fill',
+              onClick: function() {
+                var emailEl = document.getElementById('customer-email');
+                var emailInput = emailEl ? emailEl.value.trim().toLowerCase() : '';
+                var errorEl = document.getElementById('email-error');
+
+                if (!emailInput || !emailInput.includes('@')) {
+                  if (errorEl) errorEl.style.display = 'block';
+                  if (emailEl) emailEl.focus();
+                  return;
+                }
+                if (errorEl) errorEl.style.display = 'none';
+
+                hashAndPersistEmail(emailInput);
+
+                var b1 = !!(document.getElementById('bump1-check') || {}).checked;
+                var b2 = !!(document.getElementById('bump2-check') || {}).checked;
+                var selectedAmount = (27 + (b1 ? 17 : 0) + (b2 ? 12 : 0)).toFixed(2);
+
+                fetch('/api/create-order', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ bump1: b1, bump2: b2, amount: selectedAmount })
+                })
+                .then(function(res) { return res.json(); })
+                .then(function(order) {
+                  if (!order || !order.id) throw new Error('Order creation failed');
+
+                  return paypal.Googlepay().initiatePayerConfig({ orderId: order.id }).then(function(payerConfig) {
+                    var paymentDataRequest = Object.assign({}, payerConfig, {
+                      transactionInfo: {
+                        currencyCode: 'USD',
+                        totalPriceStatus: 'FINAL',
+                        totalPrice: selectedAmount
+                      }
+                    });
+
+                    return paymentsClient.loadPaymentData(paymentDataRequest).then(function(paymentData) {
+                      return paypal.Googlepay().confirmOrder({
+                        orderId: order.id,
+                        paymentMethodData: paymentData.paymentMethodData
+                      });
+                    }).then(function(confirmResult) {
+                      return fetch('/api/capture-order', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          orderID: order.id,
+                          email: emailInput,
+                          externalId: getOrCreateExternalId(),
+                          test_event_code: getTestEventCode()
+                        })
+                      });
+                    });
+                  });
+                })
+                .then(function(res) { return res.json(); })
+                .then(function(details) {
+                  if (details && details.status === 'COMPLETED') {
+                    window.location.href = '/upsell.html';
+                  } else {
+                    alert('Payment could not be verified.');
+                  }
+                })
+                .catch(function(err) {
+                  console.error('Google Pay processing error:', err);
+                });
+              }
+            });
+
+            googleContainer.appendChild(button);
+          }
+        }).catch(function(err) {
+          console.warn('Google Pay isReadyToPay error (non-fatal):', err);
+        });
+      }).catch(function(err) {
+        console.warn('Google Pay config error (non-fatal):', err);
+      });
+    }
+
+    if (typeof google !== 'undefined' && google.payments && google.payments.api) {
+      setupGooglePay();
+    } else {
+      window.addEventListener('load', setupGooglePay);
+    }
+  })();
 });
