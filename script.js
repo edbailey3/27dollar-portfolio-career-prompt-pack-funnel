@@ -776,74 +776,52 @@ document.addEventListener('DOMContentLoaded', async function() {
       }
     }
 
-    // 2. APPLE PAY SESSION HANDLER
+    // 2. APPLE PAY BUTTON
     if (paymentMethods.isEligible("applepay")) {
-      const appleContainer = document.getElementById('apple-pay-container');
-      if (appleContainer) {
-        appleContainer.style.display = 'block';
-        if (typeof sdkInstance.createApplePaySession === 'function') {
-          const appleSession = sdkInstance.createApplePaySession({
-            onApprove: handleOrderApprove,
-            onCancel: (data) => console.log('Apple Pay cancelled:', data),
-            onError: (err) => console.error('Apple Pay error:', err)
-          });
-          const appleBtn = document.createElement('applepay-payment-button');
-          appleBtn.style.cssText = "width: 100%; display: block; height: 48px; cursor: pointer;";
-          appleBtn.addEventListener('click', async () => {
-            const prep = validateAndPrepareOrder();
-            if (!prep) return;
-            await appleSession.start({ presentationMode: 'auto' }, prep.createOrderPromise);
-          });
-          appleContainer.appendChild(appleBtn);
-        } else if (typeof sdkInstance.createApplePayButton === 'function') {
-          sdkInstance.createApplePayButton({
-            container: '#apple-pay-container',
-            onClick: async () => {
+      const createAppleSession = sdkInstance.createApplePayOneTimePaymentSession || sdkInstance.createApplePaySession;
+      if (typeof createAppleSession === 'function') {
+        const applePaySession = createAppleSession.call(sdkInstance, {
+          onApprove: handleOrderApprove,
+          onCancel: (data) => console.log('Apple Pay cancelled:', data),
+          onError: (err) => console.error('Apple Pay error:', err)
+        });
+        const appleContainer = document.getElementById('apple-pay-container');
+        if (appleContainer) {
+          appleContainer.innerHTML = '<applepay-button id="apple-pay-btn" buttonstyle="black" type="buy" locale="en-US" style="width: 100%; height: 48px; display: block; cursor: pointer;"></applepay-button>';
+          const appleBtn = document.getElementById('apple-pay-btn');
+          if (appleBtn) {
+            appleBtn.addEventListener('click', async () => {
               const prep = validateAndPrepareOrder();
-              return !!prep;
-            },
-            createOrder: async () => {
-              const prep = validateAndPrepareOrder();
-              return prep ? await prep.createOrderPromise : null;
-            },
-            onApprove: handleOrderApprove
-          });
+              if (prep && prep.createOrderPromise) {
+                await applePaySession.start({ presentationMode: 'auto' }, prep.createOrderPromise);
+              }
+            });
+          }
         }
       }
     }
 
-    // 3. GOOGLE PAY SESSION HANDLER
+    // 3. GOOGLE PAY BUTTON
     if (paymentMethods.isEligible("googlepay")) {
-      const googleContainer = document.getElementById('google-pay-container');
-      if (googleContainer) {
-        googleContainer.style.display = 'block';
-        if (typeof sdkInstance.createGooglePaySession === 'function') {
-          const googleSession = sdkInstance.createGooglePaySession({
-            onApprove: handleOrderApprove,
-            onCancel: (data) => console.log('Google Pay cancelled:', data),
-            onError: (err) => console.error('Google Pay error:', err)
-          });
-          const googleBtn = document.createElement('googlepay-payment-button');
-          googleBtn.style.cssText = "width: 100%; display: block; height: 48px; cursor: pointer;";
-          googleBtn.addEventListener('click', async () => {
-            const prep = validateAndPrepareOrder();
-            if (!prep) return;
-            await googleSession.start({ presentationMode: 'auto' }, prep.createOrderPromise);
-          });
-          googleContainer.appendChild(googleBtn);
-        } else if (typeof sdkInstance.createGooglePayButton === 'function') {
-          sdkInstance.createGooglePayButton({
-            container: '#google-pay-container',
-            onClick: async () => {
+      const createGoogleSession = sdkInstance.createGooglePayOneTimePaymentSession || sdkInstance.createGooglePaySession;
+      if (typeof createGoogleSession === 'function') {
+        const googlePaySession = createGoogleSession.call(sdkInstance, {
+          onApprove: handleOrderApprove,
+          onCancel: (data) => console.log('Google Pay cancelled:', data),
+          onError: (err) => console.error('Google Pay error:', err)
+        });
+        const googleContainer = document.getElementById('google-pay-container');
+        if (googleContainer) {
+          googleContainer.innerHTML = '<googlepay-button id="google-pay-btn" buttonstyle="black" type="buy" locale="en-US" style="width: 100%; height: 48px; display: block; cursor: pointer;"></googlepay-button>';
+          const googleBtn = document.getElementById('google-pay-btn');
+          if (googleBtn) {
+            googleBtn.addEventListener('click', async () => {
               const prep = validateAndPrepareOrder();
-              return !!prep;
-            },
-            createOrder: async () => {
-              const prep = validateAndPrepareOrder();
-              return prep ? await prep.createOrderPromise : null;
-            },
-            onApprove: handleOrderApprove
-          });
+              if (prep && prep.createOrderPromise) {
+                await googlePaySession.start({ presentationMode: 'auto' }, prep.createOrderPromise);
+              }
+            });
+          }
         }
       }
     }
