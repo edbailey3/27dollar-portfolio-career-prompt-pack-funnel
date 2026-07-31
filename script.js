@@ -80,12 +80,17 @@ async function hashAndPersistEmail(email) {
     try {
       localStorage.setItem('pcs_external_id', hashed);
     } catch (e) { /* storage disabled */ }
-    if (typeof fbq === 'function') {
-      fbq('init', '2772807839768527', { external_id: hashed, em: hashed });
-    }
-    if (typeof ttq === 'object' && typeof ttq.identify === 'function') {
-      ttq.identify({ external_id: hashed, email: cleanEmail });
-    }
+    try {
+      if (typeof fbq === 'function') {
+        fbq('init', '2772807839768527', { external_id: hashed, em: hashed });
+      }
+    } catch(e) { console.warn('fbq init error:', e); }
+
+    try {
+      if (typeof ttq === 'object' && typeof ttq.identify === 'function') {
+        ttq.identify({ external_id: hashed, email: cleanEmail });
+      }
+    } catch(e) { console.warn('ttq identify error:', e); }
     return hashed;
   }
   return getOrCreateExternalId();
@@ -499,13 +504,21 @@ function initPreCheckoutLeadCapture(){
       try { sessionStorage.setItem('pcs_ic_sent', 'true'); } catch(e) {}
       var icLeadEventId = createEventId('ic_lead');
       var icLeadData = { currency: 'USD', value: 27.00, content_id: 'pcs_prompt_pack', content_name: 'Portfolio Career School Offer', content_type: 'product' };
-      if (typeof fbq === 'function') {
-        fbq('track', 'InitiateCheckout', icLeadData, { eventID: icLeadEventId });
-      }
-      if (typeof ttq === 'object' && typeof ttq.track === 'function') {
-        ttq.track('InitiateCheckout', { value: 27.00, currency: 'USD', content_id: 'pcs_prompt_pack' }, { event_id: icLeadEventId });
-      }
-      sendCAPIEvent('InitiateCheckout', icLeadEventId, icLeadData, email);
+      try {
+        if (typeof fbq === 'function') {
+          fbq('track', 'InitiateCheckout', icLeadData, { eventID: icLeadEventId });
+        }
+      } catch(err) { console.warn('Meta Lead InitiateCheckout error:', err); }
+
+      try {
+        if (typeof ttq === 'object' && typeof ttq.track === 'function') {
+          ttq.track('InitiateCheckout', { value: 27.00, currency: 'USD', content_id: 'pcs_prompt_pack' }, { event_id: icLeadEventId });
+        }
+      } catch(err) { console.warn('TikTok Lead InitiateCheckout error:', err); }
+
+      try {
+        sendCAPIEvent('InitiateCheckout', icLeadEventId, icLeadData, email);
+      } catch(err) { console.warn('CAPI Lead InitiateCheckout error:', err); }
     }
 
     var isSent = false;
@@ -565,21 +578,32 @@ function acceptUpsell(){
     content_type: 'product'
   };
 
-  if (typeof fbq === 'function') {
-    fbq('track', 'Purchase', upsellCustomData, { eventID: upsellOrderId });
-  }
-  if (typeof ttq === 'object' && typeof ttq.track === 'function') {
-    ttq.track('CompletePayment', { value: upsellValue, currency: 'USD', content_id: 'spiderweb-brain-notion-os' }, { event_id: upsellOrderId });
-  }
-  if (typeof gtag === 'function') {
-    gtag('event', 'purchase', {
-      transaction_id: upsellOrderId,
-      currency: 'USD',
-      value: 47.00,
-      items: [{ item_id: 'spiderweb-brain-notion-os', item_name: 'Spider-Web Brain Notion OS', price: 47.00, quantity: 1 }]
-    });
-  }
-  sendCAPIEvent('Purchase', upsellOrderId, upsellCustomData, customerEmail);
+  try {
+    if (typeof fbq === 'function') {
+      fbq('track', 'Purchase', upsellCustomData, { eventID: upsellOrderId });
+    }
+  } catch(e) { console.warn('Meta upsell purchase error:', e); }
+
+  try {
+    if (typeof ttq === 'object' && typeof ttq.track === 'function') {
+      ttq.track('CompletePayment', { value: upsellValue, currency: 'USD', content_id: 'spiderweb-brain-notion-os' }, { event_id: upsellOrderId });
+    }
+  } catch(e) { console.warn('TikTok upsell purchase error:', e); }
+
+  try {
+    if (typeof gtag === 'function') {
+      gtag('event', 'purchase', {
+        transaction_id: upsellOrderId,
+        currency: 'USD',
+        value: 47.00,
+        items: [{ item_id: 'spiderweb-brain-notion-os', item_name: 'Spider-Web Brain Notion OS', price: 47.00, quantity: 1 }]
+      });
+    }
+  } catch(e) { console.warn('GA4 upsell purchase error:', e); }
+
+  try {
+    sendCAPIEvent('Purchase', upsellOrderId, upsellCustomData, customerEmail);
+  } catch(e) { console.warn('CAPI upsell purchase error:', e); }
 
   window.dataLayer = window.dataLayer || [];
   window.dataLayer.push({
@@ -705,19 +729,33 @@ async function initStripeElements() {
         content_type: 'product'
       };
 
-      if (typeof fbq === 'function') {
-        fbq('track', 'InitiateCheckout', icCustomData, { eventID: icEventId });
-        fbq('track', 'AddPaymentInfo', icCustomData, { eventID: apiEventId });
-      }
-      if (typeof ttq === 'object' && typeof ttq.track === 'function') {
-        ttq.track('InitiateCheckout', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: icEventId });
-        ttq.track('AddPaymentInfo', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: apiEventId });
-      }
-      if (typeof gtag === 'function') {
-        gtag('event', 'add_payment_info', getGA4CartPayload());
-      }
-      sendCAPIEvent('InitiateCheckout', icEventId, icCustomData, cleanEmail);
-      sendCAPIEvent('AddPaymentInfo', apiEventId, icCustomData, cleanEmail);
+      try {
+        if (typeof fbq === 'function') {
+          fbq('track', 'InitiateCheckout', icCustomData, { eventID: icEventId });
+          fbq('track', 'AddPaymentInfo', icCustomData, { eventID: apiEventId });
+        }
+      } catch(e) { console.warn('Meta checkout pixels error:', e); }
+
+      try {
+        if (typeof ttq === 'object' && typeof ttq.track === 'function') {
+          ttq.track('InitiateCheckout', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: icEventId });
+          ttq.track('AddPaymentInfo', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: apiEventId });
+        }
+      } catch(e) { console.warn('TikTok checkout pixels error:', e); }
+
+      try {
+        if (typeof gtag === 'function') {
+          gtag('event', 'add_payment_info', getGA4CartPayload());
+        }
+      } catch(e) { console.warn('GA4 add_payment_info error:', e); }
+
+      try {
+        sendCAPIEvent('InitiateCheckout', icEventId, icCustomData, cleanEmail);
+      } catch(e) { console.warn('CAPI InitiateCheckout error:', e); }
+
+      try {
+        sendCAPIEvent('AddPaymentInfo', apiEventId, icCustomData, cleanEmail);
+      } catch(e) { console.warn('CAPI AddPaymentInfo error:', e); }
 
       if (submitBtn) {
         submitBtn.disabled = true;
@@ -837,21 +875,32 @@ function initStripeUpsellRedirect() {
           content_type: 'product'
         };
 
-        if (typeof fbq === 'function') {
-          fbq('track', 'Purchase', purCustomData, { eventID: paymentIntent });
-        }
-        if (typeof ttq === 'object' && typeof ttq.track === 'function') {
-          ttq.track('CompletePayment', { value: 27.00, currency: 'USD', content_id: 'pcs_prompt_pack' }, { event_id: paymentIntent });
-        }
-        if (typeof gtag === 'function') {
-          gtag('event', 'purchase', {
-            transaction_id: paymentIntent,
-            currency: 'USD',
-            value: 27.00,
-            items: [{ item_id: 'pcs_prompt_pack', item_name: 'Portfolio Career AI Prompt Pack', price: 27.00, quantity: 1 }]
-          });
-        }
-        sendCAPIEvent('Purchase', paymentIntent, purCustomData, customerEmail);
+        try {
+          if (typeof fbq === 'function') {
+            fbq('track', 'Purchase', purCustomData, { eventID: paymentIntent });
+          }
+        } catch(e) { console.warn('Meta purchase redirect pixel error:', e); }
+
+        try {
+          if (typeof ttq === 'object' && typeof ttq.track === 'function') {
+            ttq.track('CompletePayment', { value: 27.00, currency: 'USD', content_id: 'pcs_prompt_pack' }, { event_id: paymentIntent });
+          }
+        } catch(e) { console.warn('TikTok purchase redirect pixel error:', e); }
+
+        try {
+          if (typeof gtag === 'function') {
+            gtag('event', 'purchase', {
+              transaction_id: paymentIntent,
+              currency: 'USD',
+              value: 27.00,
+              items: [{ item_id: 'pcs_prompt_pack', item_name: 'Portfolio Career AI Prompt Pack', price: 27.00, quantity: 1 }]
+            });
+          }
+        } catch(e) { console.warn('GA4 purchase redirect error:', e); }
+
+        try {
+          sendCAPIEvent('Purchase', paymentIntent, purCustomData, customerEmail);
+        } catch(e) { console.warn('CAPI purchase redirect error:', e); }
 
         window.dataLayer = window.dataLayer || [];
         window.dataLayer.push({
