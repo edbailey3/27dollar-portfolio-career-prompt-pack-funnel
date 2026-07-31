@@ -445,6 +445,19 @@ function updateTotal(){
   if(summaryEl) summaryEl.innerHTML = lines;
   totalEl.innerHTML = '$' + total + '<span> USD</span>';
   currentTotalAmount = total;
+
+  var submitBtn = document.getElementById('submit-btn');
+  if (submitBtn) {
+    submitBtn.textContent = 'Pay $' + total + ' USD';
+  }
+
+  if (window.stripeElements) {
+    try {
+      window.stripeElements.update({ amount: total * 100 });
+    } catch(e) {
+      console.warn('stripeElements.update warning:', e);
+    }
+  }
 }
 
 function bumpLineHTML(name, price){
@@ -606,304 +619,256 @@ function showConfirm(title, text){
 }
 
 
-// ---------- PAYPAL JAVASCRIPT SDK V6 DISPATCH INFRASTRUCTURE ----------
-document.addEventListener('DOMContentLoaded', async function() {
-  const paypalContainer = document.querySelector('.checkout-btn-wrap');
-  if (!paypalContainer) return; // Not on checkout page — exit cleanly
+// ---------- STRIPE ELEMENTS DISPATCH INFRASTRUCTURE ----------
+var stripe = null;
+var stripeElements = null;
 
-  if (typeof window.paypal === 'undefined' || !window.paypal.createInstance) {
-    console.error('PayPal v6 SDK core not loaded');
+async function initStripeElements() {
+  const paymentForm = document.getElementById('payment-form');
+  const paymentElementContainer = document.getElementById('payment-element');
+  if (!paymentForm || !paymentElementContainer) return; // Not on checkout page
+
+  if (typeof window.Stripe === 'undefined') {
+    console.error('Stripe.js SDK not loaded');
+    const msg = document.getElementById('payment-message');
+    if (msg) {
+      msg.textContent = 'Payment engine failed to load. Please refresh the page.';
+      msg.style.display = 'block';
+    }
     return;
   }
 
   try {
-    const sdkInstance = await window.paypal.createInstance({
-      clientId: "AZ1_0aTSSXkrHYWZbBAc9ZhXBvNL_EC6UPGqBAiCZYltK_-fS8EoZsKS6_XvNbtWDkAv8-yzQOvAmGkw",
-      components: [
-        "paypal-payments",
-        "venmo-payments",
-        "paypal-guest-payments",
-        "applepay-payments",
-        "googlepay-payments"
-      ],
-      pageType: "checkout",
-      locale: "en-US"
-    });
+    const res = await fetch('/api/stripe-config');
+    const configData = await res.json();
+    const publishableKey = configData?.publishableKey;
 
-    const paymentMethods = await sdkInstance.findEligibleMethods({ currencyCode: "USD" });
-
-    // Pre-checkout email validator & order preparer
-    function validateAndPrepareOrder() {
-      const emailEl = document.getElementById('customer-email');
-      const emailInput = emailEl ? emailEl.value.trim().toLowerCase() : '';
-
-      // If email exists, persist and send telemetry
-      if (emailInput && emailInput.includes('@')) {
-        hashAndPersistEmail(emailInput);
-        var icEventId = createEventId('ic');
-        var apiEventId = createEventId('api');
-        var icValue = currentTotalAmount || 27.00;
-        var icCustomData = {
-          currency: 'USD',
-          value: icValue,
-          content_name: 'Portfolio Career School Offer',
-          content_ids: ['pcs-prompt-pack'],
-          content_type: 'product'
-        };
-
-        if (typeof fbq === 'function') {
-          fbq('track', 'InitiateCheckout', icCustomData, { eventID: icEventId });
-          fbq('track', 'AddPaymentInfo', icCustomData, { eventID: apiEventId });
-        }
-        if (typeof ttq === 'object' && typeof ttq.track === 'function') {
-          ttq.track('InitiateCheckout', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: icEventId });
-          ttq.track('AddPaymentInfo', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: apiEventId });
-        }
-        if (typeof gtag === 'function') {
-          gtag('event', 'add_payment_info', getGA4CartPayload());
-        }
-        sendCAPIEvent('InitiateCheckout', icEventId, icCustomData, emailInput);
-        sendCAPIEvent('AddPaymentInfo', apiEventId, icCustomData, emailInput);
-      }
-
-      const b1 = !!(document.getElementById('bump1-check') || {}).checked;
-      const b2 = !!(document.getElementById('bump2-check') || {}).checked;
-      const selectedAmount = (27 + (b1 ? 17 : 0) + (b2 ? 12 : 0)).toFixed(2);
-
-      return fetch('/api/create-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bump1: b1, bump2: b2, amount: selectedAmount })
-      })
-      .then(res => res.json())
-      .then(order => ({ orderId: order.id }));
+    if (!publishableKey) {
+      console.error('Stripe publishable key missing from /api/stripe-config');
+      return;
     }
 
-    // Shared order approval & capture handler
-    async function handleOrderApprove(data) {
+    stripe = window.Stripe(publishableKey);
+    window.stripe = stripe;
+
+    const initialCents = (currentTotalAmount || 27) * 100;
+
+    stripeElements = stripe.elements({
+      mode: 'payment',
+      amount: initialCents,
+      currency: 'usd',
+      appearance: { theme: 'flat' }
+    });
+    window.stripeElements = stripeElements;
+
+    const paymentElement = stripeElements.create('payment');
+    paymentElement.mount('#payment-element');
+
+    paymentForm.addEventListener('submit', async function(e) {
+      e.preventDefault();
+
+      const submitBtn = document.getElementById('submit-btn');
+      const messageContainer = document.getElementById('payment-message');
       const emailEl = document.getElementById('customer-email');
-      let customerEmail = emailEl ? emailEl.value.trim().toLowerCase() : '';
-      const orderID = data.orderId || data.orderID;
+      const emailError = document.getElementById('email-error');
 
-      var isAlreadyProcessed = false;
-      try {
-        isAlreadyProcessed = sessionStorage.getItem('pcs_purchase_processed_' + orderID) === 'true';
-      } catch(e) {}
+      if (messageContainer) {
+        messageContainer.style.display = 'none';
+        messageContainer.textContent = '';
+      }
+      if (emailError) emailError.style.display = 'none';
 
-      if (window.isBasePurchaseProcessed || isAlreadyProcessed) {
-        window.location.href = '/upsell.html';
+      const rawEmail = emailEl ? emailEl.value : '';
+      const cleanEmail = rawEmail.trim().toLowerCase();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!cleanEmail || !emailRegex.test(cleanEmail)) {
+        if (emailError) {
+          emailError.style.display = 'block';
+        } else if (messageContainer) {
+          messageContainer.textContent = 'Please enter a valid email address.';
+          messageContainer.style.display = 'block';
+        }
+        if (emailEl) emailEl.focus();
         return;
       }
-      window.isBasePurchaseProcessed = true;
+
+      await hashAndPersistEmail(cleanEmail);
+
+      var icEventId = createEventId('ic');
+      var apiEventId = createEventId('api');
+      var icValue = currentTotalAmount || 27.00;
+      var icCustomData = {
+        currency: 'USD',
+        value: icValue,
+        content_name: 'Portfolio Career School Offer',
+        content_ids: ['pcs-prompt-pack'],
+        content_type: 'product'
+      };
+
+      if (typeof fbq === 'function') {
+        fbq('track', 'InitiateCheckout', icCustomData, { eventID: icEventId });
+        fbq('track', 'AddPaymentInfo', icCustomData, { eventID: apiEventId });
+      }
+      if (typeof ttq === 'object' && typeof ttq.track === 'function') {
+        ttq.track('InitiateCheckout', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: icEventId });
+        ttq.track('AddPaymentInfo', { value: icValue, currency: 'USD', content_id: 'pcs-prompt-pack' }, { event_id: apiEventId });
+      }
+      if (typeof gtag === 'function') {
+        gtag('event', 'add_payment_info', getGA4CartPayload());
+      }
+      sendCAPIEvent('InitiateCheckout', icEventId, icCustomData, cleanEmail);
+      sendCAPIEvent('AddPaymentInfo', apiEventId, icCustomData, cleanEmail);
+
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Processing...';
+      }
+
       try {
-        sessionStorage.setItem('pcs_purchase_processed_' + orderID, 'true');
-        sessionStorage.setItem('pcs_base_order_id', orderID);
-      } catch(e) {}
-
-      const res = await fetch('/api/capture-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderID: orderID,
-          email: customerEmail,
-          externalId: getOrCreateExternalId(),
-          test_event_code: getTestEventCode()
-        })
-      });
-      const details = await res.json();
-
-      if (details && details.status === 'COMPLETED') {
-        const finalEmail = customerEmail || (details.payer && details.payer.email_address) || '';
-        if (finalEmail) {
-          hashAndPersistEmail(finalEmail);
-          try {
-            sessionStorage.setItem('pcs_customer_email', finalEmail);
-          } catch(e) {}
+        const { error: submitError } = await stripeElements.submit();
+        if (submitError) {
+          if (messageContainer) {
+            messageContainer.textContent = submitError.message;
+            messageContainer.style.display = 'block';
+          }
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Pay $' + currentTotalAmount + ' USD';
+          }
+          return;
         }
 
-        var capturedValue = details.value || currentTotalAmount || 27.00;
-        var purEventId = orderID || createEventId('pur');
-        var purCustomData = {
+        const b1 = !!(document.getElementById('bump1-check') || {}).checked;
+        const b2 = !!(document.getElementById('bump2-check') || {}).checked;
+        const externalId = getOrCreateExternalId();
+
+        const intentRes = await fetch('/api/create-payment-intent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bump1: b1,
+            bump2: b2,
+            email: cleanEmail,
+            externalId: externalId
+          })
+        });
+
+        const intentData = await intentRes.json();
+
+        if (!intentRes.ok || !intentData.clientSecret) {
+          throw new Error(intentData.error || 'Failed to create payment intent');
+        }
+
+        const returnUrl = (window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1'))
+          ? (window.location.origin + '/upsell.html')
+          : 'https://portfoliocareer-aipromptpack.portfoliocareerschool.com/upsell.html';
+
+        const { error: confirmError } = await stripe.confirmPayment({
+          elements: stripeElements,
+          clientSecret: intentData.clientSecret,
+          confirmParams: {
+            return_url: returnUrl
+          }
+        });
+
+        if (confirmError) {
+          if (messageContainer) {
+            messageContainer.textContent = confirmError.message;
+            messageContainer.style.display = 'block';
+          }
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Pay $' + currentTotalAmount + ' USD';
+          }
+        }
+      } catch (err) {
+        console.error('Stripe payment submission error:', err);
+        if (messageContainer) {
+          messageContainer.textContent = err.message || 'An unexpected error occurred during payment.';
+          messageContainer.style.display = 'block';
+        }
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Pay $' + currentTotalAmount + ' USD';
+        }
+      }
+    });
+  } catch (err) {
+    console.error('Stripe Elements initialization error:', err);
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initStripeElements);
+} else {
+  initStripeElements();
+}
+
+// ---------- UPSELL PAGE: STRIPE REDIRECT PARAMETER EXTRACTION ----------
+function initStripeUpsellRedirect() {
+  if (typeof window === 'undefined') return;
+  const path = window.location.pathname;
+  if (!path.endsWith('/upsell.html') && path !== '/upsell') return;
+
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentIntent = urlParams.get('payment_intent');
+    const redirectStatus = urlParams.get('redirect_status');
+
+    if (redirectStatus === 'succeeded' && paymentIntent) {
+      let isAlreadyProcessed = false;
+      try {
+        isAlreadyProcessed = sessionStorage.getItem('pcs_purchase_processed_' + paymentIntent) === 'true';
+      } catch (e) {}
+
+      sessionStorage.setItem('pcs_base_order_id', paymentIntent);
+
+      if (!isAlreadyProcessed) {
+        try {
+          sessionStorage.setItem('pcs_purchase_processed_' + paymentIntent, 'true');
+        } catch (e) {}
+
+        const customerEmail = sessionStorage.getItem('pcs_customer_email') || '';
+        const purCustomData = {
           currency: 'USD',
-          value: capturedValue,
+          value: 27.00,
           content_name: 'Portfolio Career School Offer',
           content_ids: ['pcs-prompt-pack'],
           content_type: 'product'
         };
 
         if (typeof fbq === 'function') {
-          fbq('track', 'Purchase', purCustomData, { eventID: purEventId });
+          fbq('track', 'Purchase', purCustomData, { eventID: paymentIntent });
         }
         if (typeof ttq === 'object' && typeof ttq.track === 'function') {
-          ttq.track('CompletePayment', { value: capturedValue, currency: 'USD', content_id: 'pcs_prompt_pack' }, { event_id: purEventId });
+          ttq.track('CompletePayment', { value: 27.00, currency: 'USD', content_id: 'pcs_prompt_pack' }, { event_id: paymentIntent });
         }
         if (typeof gtag === 'function') {
-          var ga4Cart = getGA4CartPayload();
           gtag('event', 'purchase', {
-            transaction_id: orderID,
+            transaction_id: paymentIntent,
             currency: 'USD',
-            value: ga4Cart.value,
-            items: ga4Cart.items
+            value: 27.00,
+            items: [{ item_id: 'pcs_prompt_pack', item_name: 'Portfolio Career AI Prompt Pack', price: 27.00, quantity: 1 }]
           });
         }
+        sendCAPIEvent('Purchase', paymentIntent, purCustomData, customerEmail);
 
         window.dataLayer = window.dataLayer || [];
         window.dataLayer.push({
           'event': 'purchase_funnel_completed',
-          'transactionId': purEventId,
-          'value': capturedValue,
+          'transactionId': paymentIntent,
+          'value': 27.00,
           'currency': 'USD'
         });
-
-        window.location.href = '/upsell.html';
-      } else {
-        alert('Payment could not be verified. Please contact support.');
       }
     }
-
-    // 1. PayPal
-    if (paymentMethods.isEligible("paypal")) {
-      const paypalSession = sdkInstance.createPayPalOneTimePaymentSession({ onApprove: handleOrderApprove });
-      const paypalBtn = document.getElementById('paypal-btn');
-      if (paypalBtn) {
-        paypalBtn.removeAttribute('hidden');
-        paypalBtn.style.display = 'block';
-        paypalBtn.session = paypalSession;
-        paypalBtn.addEventListener('click', async () => {
-          const order = validateAndPrepareOrder();
-          if (order) await paypalSession.start({ presentationMode: 'auto' }, order);
-        });
-      }
-    }
-
-    // 2. Pay Later
-    if (paymentMethods.isEligible("paylater") || paymentMethods.isEligible("paypal")) {
-      const payLaterSession = sdkInstance.createPayLaterOneTimePaymentSession ? sdkInstance.createPayLaterOneTimePaymentSession({ onApprove: handleOrderApprove }) : sdkInstance.createPayPalOneTimePaymentSession({ onApprove: handleOrderApprove });
-      const payLaterBtn = document.getElementById('paylater-btn');
-      if (payLaterBtn) {
-        payLaterBtn.removeAttribute('hidden');
-        payLaterBtn.style.display = 'block';
-        payLaterBtn.session = payLaterSession;
-        payLaterBtn.addEventListener('click', async () => {
-          const order = validateAndPrepareOrder();
-          if (order) await payLaterSession.start({ presentationMode: 'auto' }, order);
-        });
-      }
-    }
-
-    // 3. Debit / Credit Cards
-    if (paymentMethods.isEligible("card")) {
-      const cardSession = sdkInstance.createPayPalGuestOneTimePaymentSession ? sdkInstance.createPayPalGuestOneTimePaymentSession({ onApprove: handleOrderApprove }) : sdkInstance.createPayPalOneTimePaymentSession({ onApprove: handleOrderApprove });
-      const cardBtn = document.getElementById('card-btn');
-      if (cardBtn) {
-        cardBtn.removeAttribute('hidden');
-        cardBtn.style.display = 'block';
-        cardBtn.session = cardSession;
-        cardBtn.addEventListener('click', async () => {
-          const order = validateAndPrepareOrder();
-          if (order) await cardSession.start({ presentationMode: 'auto' }, order);
-        });
-      }
-    }
-
-    // 4. Venmo
-    if (paymentMethods.isEligible("venmo")) {
-      const venmoSession = sdkInstance.createVenmoOneTimePaymentSession ? sdkInstance.createVenmoOneTimePaymentSession({ onApprove: handleOrderApprove }) : sdkInstance.createPayPalOneTimePaymentSession({ onApprove: handleOrderApprove });
-      const venmoBtn = document.getElementById('venmo-btn');
-      if (venmoBtn) {
-        venmoBtn.removeAttribute('hidden');
-        venmoBtn.style.display = 'block';
-        venmoBtn.session = venmoSession;
-        venmoBtn.addEventListener('click', async () => {
-          const order = validateAndPrepareOrder();
-          if (order) await venmoSession.start({ presentationMode: 'auto' }, order);
-        });
-      }
-    }
-
-    // 5. Apple Pay (Check SDK eligibility OR Safari ApplePaySession readiness)
-    const isApplePayEligible = paymentMethods.isEligible("applepay") || 
-      (typeof window.ApplePaySession !== 'undefined' && window.ApplePaySession.canMakePayments());
-
-    const appleContainer = document.getElementById('apple-pay-container');
-
-    if (isApplePayEligible && appleContainer) {
-      try {
-        const createAppleSession = sdkInstance.createApplePayOneTimePaymentSession || sdkInstance.createApplePaySession;
-        if (typeof createAppleSession === 'function') {
-          const applePaySession = createAppleSession.call(sdkInstance, {
-            onApprove: handleOrderApprove,
-            onCancel: (data) => console.log('Apple Pay cancelled:', data),
-            onError: (err) => console.error('Apple Pay error:', err)
-          });
-          
-          appleContainer.innerHTML = '<applepay-button id="apple-pay-btn" buttonstyle="black" type="buy" locale="en-US"></applepay-button>';
-          const appleBtn = document.getElementById('apple-pay-btn');
-          if (appleBtn) {
-            appleBtn.session = applePaySession;
-            appleBtn.addEventListener('click', async () => {
-              const createOrderPromise = validateAndPrepareOrder();
-              if (createOrderPromise && applePaySession) {
-                if (typeof applePaySession.start === 'function') {
-                  await applePaySession.start({ presentationMode: 'auto' }, createOrderPromise);
-                } else if (typeof applePaySession.begin === 'function') {
-                  await applePaySession.begin();
-                }
-              }
-            });
-            // UNHIDE CONTAINER ONLY AFTER SUCCESSFUL BUTTON MOUNT
-            appleContainer.style.display = 'block';
-          }
-        }
-      } catch (appleErr) {
-        console.warn('Apple Pay session initialization warning:', appleErr);
-        appleContainer.style.display = 'none';
-      }
-    } else if (appleContainer) {
-      appleContainer.style.display = 'none';
-    }
-
-    // 6. Google Pay (Check SDK eligibility OR Android device readiness)
-    const isGooglePayEligible = paymentMethods.isEligible("googlepay") || 
-      (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent));
-
-    const googleContainer = document.getElementById('google-pay-container');
-
-    if (isGooglePayEligible && googleContainer) {
-      try {
-        const createGoogleSession = sdkInstance.createGooglePayOneTimePaymentSession || sdkInstance.createGooglePaySession;
-        if (typeof createGoogleSession === 'function') {
-          const googlePaySession = createGoogleSession.call(sdkInstance, {
-            onApprove: handleOrderApprove,
-            onCancel: (data) => console.log('Google Pay cancelled:', data),
-            onError: (err) => console.error('Google Pay error:', err)
-          });
-
-          googleContainer.innerHTML = '<googlepay-button id="google-pay-btn" buttonstyle="black" type="buy" locale="en-US"></googlepay-button>';
-          const googleBtn = document.getElementById('google-pay-btn');
-          if (googleBtn) {
-            googleBtn.session = googlePaySession;
-            googleBtn.addEventListener('click', async () => {
-              const order = validateAndPrepareOrder();
-              if (order && googlePaySession) {
-                if (typeof googlePaySession.start === 'function') {
-                  await googlePaySession.start({ presentationMode: 'auto' }, order);
-                }
-              }
-            });
-            // UNHIDE CONTAINER ONLY AFTER SUCCESSFUL BUTTON MOUNT
-            googleContainer.style.display = 'block';
-          }
-        }
-      } catch (googleErr) {
-        console.warn('Google Pay session initialization warning:', googleErr);
-        googleContainer.style.display = 'none';
-      }
-    } else if (googleContainer) {
-      googleContainer.style.display = 'none';
-    }
-
   } catch (err) {
-    console.error('PayPal v6 initialization error:', err);
+    console.warn('Stripe upsell URL param processing error:', err);
   }
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initStripeUpsellRedirect);
+} else {
+  initStripeUpsellRedirect();
+}

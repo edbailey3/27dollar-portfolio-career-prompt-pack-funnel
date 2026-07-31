@@ -66,6 +66,7 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 <meta name="robots" content="noindex, nofollow">
 <title>Checkout — The Portfolio Career Prompt Pack</title>
 <link rel="stylesheet" href="style.css">
+<script src="https://js.stripe.com/v3/"></script>
 </head>
 <body>
 
@@ -146,19 +147,11 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
       </div>
 
       <div class="checkout-btn-wrap" style="margin-top: 26px; display: flex; flex-direction: column; gap: 10px;">
-        <!-- 1. Debit or Credit Card -->
-        <paypal-basic-card-container style="width: 100%;">
-          <paypal-basic-card-button id="card-btn" hidden style="width: 100%;"></paypal-basic-card-button>
-        </paypal-basic-card-container>
-
-        <!-- 2. Mobile Wallets (Will collapse if empty or hidden by SDK) -->
-        <div id="apple-pay-container"></div>
-        <div id="google-pay-container"></div>
-
-        <!-- 3. PayPal, Pay Later, Venmo -->
-        <paypal-button id="paypal-btn" hidden style="width: 100%;"></paypal-button>
-        <paypal-pay-later-button id="paylater-btn" country-code="US" product-code="PAYLATER" hidden style="width: 100%;"></paypal-pay-later-button>
-        <venmo-button id="venmo-btn" hidden style="width: 100%;"></venmo-button>
+        <form id="payment-form">
+          <div id="payment-element" style="margin-bottom: 16px; min-height: 180px;"></div>
+          <button id="submit-btn" class="btn btn--primary" style="width: 100%;">Pay $27 USD</button>
+          <div id="payment-message" style="color: #ff4444; margin-top: 10px; font-size: 14px; text-align: center; display: none;"></div>
+        </form>
       </div>
 
       <div class="trust-row">
@@ -191,7 +184,6 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
   </div>
 </footer>
 
-<script src="https://www.paypal.com/web-sdk/v6/core"></script>
 <script src="script.js" defer></script>
 <script>
   window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
