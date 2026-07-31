@@ -274,21 +274,41 @@ if (typeof window !== 'undefined') {
     console.warn('CAPI PageView warning:', err);
   }
 
-  // 4. Landing Page ViewContent (Single Execution with Meta array schema compliance)
+  // 4. Landing Page ViewContent (Sanitized Platform Payloads)
+  const path = window.location.pathname;
+  const isLandingPage = path === '/' || path.endsWith('/index.html') || path === '';
   if (isLandingPage) {
     const vcEventId = createEventId('vc');
-    const vcData = { 
-      content_id: 'pcs_prompt_pack',
-      content_ids: ['pcs_prompt_pack'], // Required for Meta Pixel JS array schema
+
+    // A. Strict Meta Pixel JS Schema Payload
+    const metaVcData = { 
+      content_ids: ['pcs_prompt_pack'],
+      content_type: 'product',
+      content_name: 'Portfolio Career Prompt Pack',
       value: 27.00, 
-      currency: 'USD', 
-      content_name: 'Portfolio Career Prompt Pack', 
-      content_type: 'product' 
+      currency: 'USD' 
+    };
+
+    // B. TikTok Pixel Schema Payload
+    const tiktokVcData = {
+      content_id: 'pcs_prompt_pack',
+      value: 27.00,
+      currency: 'USD'
+    };
+
+    // C. Unified CAPI Payload
+    const capiVcData = {
+      content_id: 'pcs_prompt_pack',
+      content_ids: ['pcs_prompt_pack'],
+      value: 27.00,
+      currency: 'USD',
+      content_name: 'Portfolio Career Prompt Pack',
+      content_type: 'product'
     };
 
     try {
       if (typeof fbq === 'function') {
-        fbq('track', 'ViewContent', vcData, { eventID: vcEventId });
+        fbq('track', 'ViewContent', metaVcData, { eventID: vcEventId });
       }
     } catch(err) {
       console.warn('Meta ViewContent pixel warning:', err);
@@ -296,14 +316,14 @@ if (typeof window !== 'undefined') {
 
     try {
       if (typeof ttq === 'object' && typeof ttq.track === 'function') {
-        ttq.track('ViewContent', { content_id: 'pcs_prompt_pack', value: 27.00, currency: 'USD' }, { event_id: vcEventId });
+        ttq.track('ViewContent', tiktokVcData, { event_id: vcEventId });
       }
     } catch(err) {
       console.warn('TikTok ViewContent pixel warning:', err);
     }
 
     try {
-      sendCAPIEvent('ViewContent', vcEventId, vcData);
+      sendCAPIEvent('ViewContent', vcEventId, capiVcData);
     } catch(err) {
       console.warn('CAPI ViewContent warning:', err);
     }
