@@ -184,6 +184,9 @@ if (typeof window !== 'undefined') {
 // Synchronized PageView & ViewContent Meta/TikTok Pixel & Dual CAPI tracking
 (function trackPageViewAndContent() {
   if (typeof window === 'undefined') return;
+  if (window.__pcs_pv_fired) return;
+  window.__pcs_pv_fired = true;
+
   const sanitizeId = (id) => String(id || '').replace(/['"]/g, '').trim();
   const currentEventId = createEventId('pv');
   const extId = sanitizeId(getOrCreateExternalId());
@@ -243,17 +246,17 @@ if (typeof window !== 'undefined') {
     }
   }
 
-  // 2. Meta Pixel PageView (Isolated Try/Catch)
+  // 1. Meta Pixel PageView (Deterministic 1:1 eventID attachment)
   try {
     if (typeof fbq === 'function') {
-      if (extId) fbq('init', '2772807839768527', { external_id: sanitizeId(extId) });
+      if (extId) fbq('init', '2772807839768527', { external_id: extId });
       fbq('track', 'PageView', {}, { eventID: currentEventId });
     }
   } catch(err) {
     console.warn('Meta PageView pixel warning:', err);
   }
 
-  // 3. TikTok Pixel PageView (Isolated Try/Catch)
+  // 2. TikTok Pixel PageView
   try {
     if (typeof ttq === 'object') {
       if (extId && typeof ttq.identify === 'function') {
@@ -262,47 +265,45 @@ if (typeof window !== 'undefined') {
         if (storedEmail) ttIdentity.email = storedEmail;
         ttq.identify(ttIdentity);
       }
-      if (typeof ttq.page === 'function') {
-        ttq.page();
-      }
+      if (typeof ttq.page === 'function') ttq.page();
     }
   } catch(err) {
     console.warn('TikTok PageView pixel warning:', err);
   }
 
-  // 4. Dual CAPI S2S PageView (Isolated Try/Catch)
+  // 3. S2S CAPI Dual Dispatch
   try {
     sendCAPIEvent('PageView', currentEventId);
   } catch(err) {
     console.warn('CAPI PageView warning:', err);
   }
 
-  // 5. Landing Page Ad Engine ViewContent (Isolated Try/Catch)
+  // 4. Landing Page ViewContent (Single Execution)
   if (isLandingPage) {
     const vcEventId = createEventId('vc');
-    const vcData = { content_id: 'pcs_prompt_pack', value: 27.00, currency: 'USD', content_name: 'Portfolio Career Prompt Pack', content_type: 'product' };
+    const vcData = { 
+      content_id: 'pcs_prompt_pack', 
+      value: 27.00, 
+      currency: 'USD', 
+      content_name: 'Portfolio Career Prompt Pack', 
+      content_type: 'product' 
+    };
 
     try {
       if (typeof fbq === 'function') {
         fbq('track', 'ViewContent', vcData, { eventID: vcEventId });
       }
-    } catch(err) {
-      console.warn('Meta ViewContent warning:', err);
-    }
+    } catch(err) {}
 
     try {
       if (typeof ttq === 'object' && typeof ttq.track === 'function') {
         ttq.track('ViewContent', { content_id: 'pcs_prompt_pack', value: 27.00, currency: 'USD' }, { event_id: vcEventId });
       }
-    } catch(err) {
-      console.warn('TikTok ViewContent warning:', err);
-    }
+    } catch(err) {}
 
     try {
       sendCAPIEvent('ViewContent', vcEventId, vcData);
-    } catch(err) {
-      console.warn('CAPI ViewContent warning:', err);
-    }
+    } catch(err) {}
   }
 
   // Auto-capture ?email= or ?tt_test_code= URL params if present
