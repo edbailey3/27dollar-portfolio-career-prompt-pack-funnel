@@ -274,9 +274,7 @@ if (typeof window !== 'undefined') {
     console.warn('CAPI PageView warning:', err);
   }
 
-  // 4. Landing Page ViewContent (Single Execution)
-  const path = window.location.pathname;
-  const isLandingPage = path === '/' || path.endsWith('/index.html') || path === '';
+  // 4. Landing Page ViewContent (Single Execution with Meta array schema compliance)
   if (isLandingPage) {
     const vcEventId = createEventId('vc');
     const vcData = { 
