@@ -275,10 +275,13 @@ if (typeof window !== 'undefined') {
   }
 
   // 4. Landing Page ViewContent (Single Execution)
+  const path = window.location.pathname;
+  const isLandingPage = path === '/' || path.endsWith('/index.html') || path === '';
   if (isLandingPage) {
     const vcEventId = createEventId('vc');
     const vcData = { 
-      content_id: 'pcs_prompt_pack', 
+      content_id: 'pcs_prompt_pack',
+      content_ids: ['pcs_prompt_pack'], // Required for Meta Pixel JS array schema
       value: 27.00, 
       currency: 'USD', 
       content_name: 'Portfolio Career Prompt Pack', 
@@ -289,17 +292,23 @@ if (typeof window !== 'undefined') {
       if (typeof fbq === 'function') {
         fbq('track', 'ViewContent', vcData, { eventID: vcEventId });
       }
-    } catch(err) {}
+    } catch(err) {
+      console.warn('Meta ViewContent pixel warning:', err);
+    }
 
     try {
       if (typeof ttq === 'object' && typeof ttq.track === 'function') {
         ttq.track('ViewContent', { content_id: 'pcs_prompt_pack', value: 27.00, currency: 'USD' }, { event_id: vcEventId });
       }
-    } catch(err) {}
+    } catch(err) {
+      console.warn('TikTok ViewContent pixel warning:', err);
+    }
 
     try {
       sendCAPIEvent('ViewContent', vcEventId, vcData);
-    } catch(err) {}
+    } catch(err) {
+      console.warn('CAPI ViewContent warning:', err);
+    }
   }
 
   // Auto-capture ?email= or ?tt_test_code= URL params if present
