@@ -78,6 +78,20 @@ export default async function handler(req, res) {
             ...(rawExternalId ? { external_id: [rawExternalId] } : {}) // Meta requires list<string> array
           };
 
+          // --- Meta Custom Data Sanitizer ---
+          let metaCustomData = undefined;
+          if (customData && typeof customData === 'object') {
+            const { content_id, ...cleanMetaCustomData } = customData;
+            metaCustomData = {
+              ...cleanMetaCustomData,
+              currency: cleanMetaCustomData.currency || 'USD',
+              value: cleanMetaCustomData.value !== undefined ? Number(cleanMetaCustomData.value) : 27.00
+            };
+            if (!metaCustomData.content_ids && content_id) {
+              metaCustomData.content_ids = [content_id];
+            }
+          }
+
           const metaPayload = {
             data: [
               {
@@ -87,7 +101,7 @@ export default async function handler(req, res) {
                 action_source: 'website',
                 event_source_url: pageUrl,
                 user_data: metaUserData,
-                custom_data: customData || { currency: 'USD', value: 27.00 }
+                custom_data: metaCustomData || { currency: 'USD', value: 27.00 }
               }
             ],
             ...(testCode ? { test_event_code: testCode } : {})
