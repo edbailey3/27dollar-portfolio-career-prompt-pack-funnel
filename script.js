@@ -246,10 +246,9 @@ if (typeof window !== 'undefined') {
     }
   }
 
-  // 1. Meta Pixel PageView (Deterministic 1:1 eventID attachment)
+  // 1. Meta Pixel PageView (Explicit eventID attachment, NO re-init)
   try {
     if (typeof fbq === 'function') {
-      if (extId) fbq('init', '2772807839768527', { external_id: extId });
       fbq('track', 'PageView', {}, { eventID: currentEventId });
     }
   } catch(err) {
