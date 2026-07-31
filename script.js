@@ -260,10 +260,7 @@ if (typeof window !== 'undefined') {
   try {
     if (typeof ttq === 'object') {
       if (extId && typeof ttq.identify === 'function') {
-        const ttIdentity = { external_id: extId };
-        const storedEmail = sessionStorage.getItem('pcs_customer_email');
-        if (storedEmail) ttIdentity.email = storedEmail;
-        ttq.identify(ttIdentity);
+        ttq.identify({ external_id: extId });
       }
       if (typeof ttq.page === 'function') ttq.page();
     }
