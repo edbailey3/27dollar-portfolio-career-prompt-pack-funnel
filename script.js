@@ -275,8 +275,6 @@ if (typeof window !== 'undefined') {
   }
 
   // 4. Landing Page ViewContent (Sanitized Platform Payloads)
-  const path = window.location.pathname;
-  const isLandingPage = path === '/' || path.endsWith('/index.html') || path === '';
   if (isLandingPage) {
     const vcEventId = createEventId('vc');
 
